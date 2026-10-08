@@ -1,0 +1,1 @@
+﻿src/engine/__tests__/relics.test.ts(45,20): error TS2741: Property 'desc' is missing in type '{ id: string; name: string; kind: "active"; target: "enemyOne"; mpCost: number; damageType: "physical"; multiplier: number; }' but required in type 'Skill'.

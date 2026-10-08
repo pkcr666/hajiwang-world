@@ -1,0 +1,23 @@
+﻿[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 139 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                   [39m[1m[2m  0.61 kB[22m[1m[22m[2m │ gzip:   0.37 kB[22m
+[2mdist/[22m[35massets/index-BuFA3vXA.css    [39m[1m[2m 81.79 kB[22m[1m[22m[2m │ gzip:  16.38 kB[22m
+[2mdist/[22m[36massets/socketio-C040XL7Y.js  [39m[1m[2m 41.69 kB[22m[1m[22m[2m │ gzip:  13.05 kB[22m
+[2mdist/[22m[36massets/react-nf7bT_Uh.js     [39m[1m[2m140.87 kB[22m[1m[22m[2m │ gzip:  45.26 kB[22m
+[2mdist/[22m[36massets/index-BWttRbfN.js     [39m[1m[33m759.59 kB[39m[22m[2m │ gzip: 221.78 kB[22m
+node.exe : [33m
+所在位置 行:1 字符: 1
++ & "C:\Users\超级宝宝暴龙\AppData\Local\Doubao\User Data\sandbox_runtime\bas ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([33m:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-m
+anualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[32m✓ built in 4.13s[39m

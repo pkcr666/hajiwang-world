@@ -1,0 +1,14 @@
+# Render Blueprint：一键部署联机服务器（含前端 dist 静态托管 + Socket.IO）
+# 使用方法：把本仓库推到 GitHub 后，在 Render 新建 Blueprint 选择本仓库即可自动创建
+services:
+  - type: web
+    name: hajiwang-world-online
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+    healthCheckPath: /
+    autoDeploy: true

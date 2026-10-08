@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">哈基汪世界</string>
+    <string name="title_activity_main">哈基汪世界</string>
+    <string name="package_name">com.hajiwang.world</string>
+    <string name="custom_url_scheme">com.hajiwang.world</string>
+</resources>
