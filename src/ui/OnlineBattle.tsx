@@ -1,4 +1,4 @@
-﻿// 联机战斗界面：复用单人战斗 UI（OrderBar/UnitCard/Modal + battle-page CSS），服务器权威推进
+// 联机战斗界面：复用单人战斗 UI（OrderBar/UnitCard/Modal + battle-page CSS），服务器权威推进
 // 交互完全对齐单人版 Battle：被动不显示、自动目标技能直接释放、先选技能再选目标、虚化增强、道具、BOSS 血条
 import { useEffect, useRef, useState } from 'react';
 import { C2S, S2C } from '../net/proto';
@@ -10,7 +10,10 @@ import { Sprite } from '../components/Sprite';
 import { Modal } from '../components/Modal';
 import type { Combatant, LogEntry } from '../types';
 import { currentActor } from '../engine/battle';
-import { BUFF_LIBRARY } from '../engine/buffs';
+import { BUFF_LIBRARY, addBuff, computeDamageMods, effDefBuffed, effSpd } from '../engine/buffs';
+import { useDragScroll } from '../hooks/useDragScroll';
+import { effAtk } from '../engine/damage';
+import { spdText } from './labels';
 
 interface Props {
   onMap: () => void;
@@ -32,7 +35,11 @@ export default function OnlineBattle({ onMap }: Props) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [toast, setToast] = useState('');
   const [infoUid, setInfoUid] = useState<string | null>(null);
+  const [showFullLog, setShowFullLog] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+  const fullLogRef = useRef<HTMLDivElement>(null);
+  // 行动按钮横向拖拽滚动（鼠标拖拽/触摸滑动）
+  const actionScroll = useDragScroll<HTMLDivElement>();
 
   useEffect(() => {
     const off1 = online.on(S2C.battleView, (d) => { setB(d as BattleView); setToast(''); setPending(null); });
@@ -51,6 +58,11 @@ export default function OnlineBattle({ onMap }: Props) {
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [b?.full?.log.length]);
+
+  // 完整日志弹窗打开时：滚动到最新一条；战斗中产生新日志也跟随
+  useEffect(() => {
+    if (showFullLog) fullLogRef.current?.scrollTo({ top: fullLogRef.current.scrollHeight });
+  }, [showFullLog, b?.full?.log.length]);
 
   if (!b || !b.full) {
     return (
@@ -243,8 +255,14 @@ export default function OnlineBattle({ onMap }: Props) {
       </div>
 
       <div className="battle-bottom">
-        <div className="log-panel" ref={logRef}>
-          {s.log.slice(-40).map((e, i) => <div key={i} className="log-line">{logTextOf(e)}</div>)}
+        <div className="log-panel-wrap">
+          <div className="log-panel-head">
+            <span>战斗日志</span>
+            <button className="log-more-btn" onClick={() => setShowFullLog(true)}>完整日志（{s.log.length}）</button>
+          </div>
+          <div className="log-panel" ref={logRef}>
+            {s.log.slice(-40).map((e, i) => <div key={i} className="log-line">{logTextOf(e)}</div>)}
+          </div>
         </div>
 
         <div className="action-panel">
@@ -259,7 +277,7 @@ export default function OnlineBattle({ onMap }: Props) {
             ) : (
               <>
                 <div className="actor-tip">轮到【{actor.name}】行动</div>
-                <div className="action-btns">
+                <div className="action-btns" ref={actionScroll}>
                   <button
                     className="btn"
                     disabled={!legal?.canAttack}
@@ -333,7 +351,109 @@ export default function OnlineBattle({ onMap }: Props) {
         </div>
       </div>
 
-      {popup && canResolve && (
+      {popup && popup.kind === 'reaction' && (() => {
+        const pr = popup.reaction!;
+        const attacker = [...s.allies, ...s.enemies].find((x) => x.uid === pr.attackerUid);
+        const target = s.allies.find((x) => x.uid === pr.targetUid);
+        const rsk = target?.skills?.find((x) => x.id === pr.skillId);
+        if (!attacker || !target || !rsk?.reaction) return null;
+        const rx = rsk.reaction;
+        const choose = (accept: boolean) => resolve('reaction', { accept });
+        return (
+          <Modal title={`${rsk.name}？`} onClose={() => (canResolve ? choose(false) : undefined)}>
+            <p>【{attacker.name}】即将攻击【{target.name}】，是否使用「{rsk.name}」？</p>
+            {rx.mode === 'kamui' ? (
+              <p className="muted small">
+                消耗 {rsk.mpCost} MP 与 1 次虚化次数（剩余 {target.kamuiUses ?? 0} 次），
+                无效本次攻击并获得强壮增益。
+              </p>
+            ) : (
+              (() => {
+                const cur = attacker.buffs.find((b) => b.id === rx.buffId)?.stacks ?? 0;
+                const canStack = cur < (rx.maxStacks ?? 1);
+                const atkNow = effAtk(attacker);
+                const defNow = effDefBuffed(attacker);
+                const sim = structuredClone(attacker);
+                addBuff(sim, rx.buffId!, 1, rx.intensity ?? 1);
+                const atkAfter = effAtk(sim);
+                const defAfter = effDefBuffed(sim);
+                return (
+                  <>
+                    <p className="muted small">
+                      消耗 {rsk.mpCost} MP：{attacker.name} 攻击、防御各-5%/层并减强度值
+                      （当前 {cur} 层 · 上限 {rx.maxStacks ?? 1} 层）
+                    </p>
+                    <div className="huff-stats">
+                      <div className="huff-row">
+                        <span>当前攻击力</span>
+                        <b>{atkNow}</b>
+                        <span className="huff-arrow">→</span>
+                        <b className={canStack ? 'huff-after' : 'huff-same'}>{atkAfter}</b>
+                      </div>
+                      <div className="huff-row">
+                        <span>当前防御力</span>
+                        <b>{defNow}</b>
+                        <span className="huff-arrow">→</span>
+                        <b className={canStack ? 'huff-after' : 'huff-same'}>{defAfter}</b>
+                      </div>
+                      {!canStack && (
+                        <p className="muted small">已达 {rx.maxStacks ?? 1} 层上限，本次哈气不会进一步削弱。</p>
+                      )}
+                    </div>
+                  </>
+                );
+              })()
+            )}
+            <div className="modal-actions">
+              {canResolve ? (
+                <>
+                  <button className="btn primary" onClick={() => choose(true)}>
+                    {rx.mode === 'kamui' ? '虚化！' : `${rsk.name}！`}
+                  </button>
+                  <button className="btn" onClick={() => choose(false)}>
+                    {rx.mode === 'kamui' ? '不闪避' : `不${rsk.name}`}
+                  </button>
+                </>
+              ) : (
+                <p className="muted small" style={{ color: '#8fa0c8' }}>等待队友处理弹窗…</p>
+              )}
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {popup && popup.kind === 'brokenArk' && (() => {
+        const pb = popup.brokenArk!;
+        const target = s.allies.find((x) => x.uid === pb.targetUid);
+        const ba = target?.weaponBrokenArk;
+        if (!target || !ba) return null;
+        const reduced = Math.floor(pb.toHp * (1 - ba.dmgRedPct));
+        const choose = (accept: boolean) => resolve('brokenArk', { accept });
+        return (
+          <Modal title="破碎方舟" onClose={() => (canResolve ? choose(false) : undefined)}>
+            <p>【{target.name}】即将受到 <b>{pb.toHp}</b> 点伤害，是否启动「破碎方舟」？</p>
+            <p className="muted small">
+              消耗 {ba.mpCost} MP（当前 {target.mp}/{target.maxMp}）：抵消 {Math.round(ba.dmgRedPct * 100)}% 伤害
+              （{pb.toHp} → {reduced}），并获得 {ba.buffStacks} 层强壮（强度 {ba.buffIntensity}，+{ba.buffIntensity * 10}% 增伤）。
+            </p>
+            <p className="muted small">
+              强壮强度固定为 {ba.buffIntensity}，多次触发仅累加回合数，不会继续上涨。
+            </p>
+            <div className="modal-actions">
+              {canResolve ? (
+                <>
+                  <button className="btn primary" onClick={() => choose(true)}>启动方舟！</button>
+                  <button className="btn" onClick={() => choose(false)}>硬抗</button>
+                </>
+              ) : (
+                <p className="muted small" style={{ color: '#8fa0c8' }}>等待队友处理弹窗…</p>
+              )}
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {popup && canResolve && popup.kind !== 'reaction' && popup.kind !== 'brokenArk' && (
         <Modal title={popup.title} onClose={() => {}}>
           <div style={{ color: '#c8b8e0', fontSize: 13, marginBottom: 12 }}>{popup.desc}</div>
           <div className="modal-actions" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
@@ -346,7 +466,7 @@ export default function OnlineBattle({ onMap }: Props) {
         </Modal>
       )}
 
-      {popup && !canResolve && (
+      {popup && !canResolve && popup.kind !== 'reaction' && popup.kind !== 'brokenArk' && (
         <div className="modal-mask">
           <div className="modal">
             <div className="modal-head"><h3>{popup.title}</h3></div>
@@ -357,27 +477,106 @@ export default function OnlineBattle({ onMap }: Props) {
         </div>
       )}
 
+      {showFullLog && (
+        <Modal title={`完整战斗日志 · 共 ${s.log.length} 条`} onClose={() => setShowFullLog(false)}>
+          <div className="full-log-panel" ref={fullLogRef}>
+            {s.log.map((e, i) => <div key={i} className="log-line">{logTextOf(e)}</div>)}
+          </div>
+          <div className="modal-actions">
+            <button className="btn primary" onClick={() => setShowFullLog(false)}>关闭</button>
+          </div>
+        </Modal>
+      )}
+
       {infoUid && (() => {
         const u = infoUnit(infoUid);
         if (!u) return null;
+        const base = u.baseSnapshot;
+        const bStats = base?.stats;
+        const curAtk = effAtk(u);
+        const curDef = effDefBuffed(u);
+        const curMres = u.stats.mres;
+        const curSpd = effSpd(u);
+        const mods = computeDamageMods(u);
+        const relicMods = u.relicMods ?? {};
+        const d = (cur: number, baseVal?: number) => {
+          if (baseVal === undefined || cur === baseVal) return null;
+          const diff = cur - baseVal;
+          return diff > 0
+            ? <i className="bp-relic-delta" style={{ color: '#2e7d32' }}>+{diff}</i>
+            : <i className="bp-relic-delta" style={{ color: '#c62828' }}>{diff}</i>;
+        };
+        const dpct = (cur: number, baseVal?: number) => {
+          if (baseVal === undefined || cur === baseVal) return null;
+          const diff = Math.round((cur - baseVal) * 100);
+          return diff > 0
+            ? <i className="bp-relic-delta" style={{ color: '#2e7d32' }}>+{diff}%</i>
+            : <i className="bp-relic-delta" style={{ color: '#c62828' }}>{diff}%</i>;
+        };
+        const six: [string, number | undefined, number | undefined][] = [
+          ['力量', u.str, base?.str],
+          ['智力', u.int, base?.int],
+          ['敏捷', u.agi, base?.agi],
+          ['幸运', u.luk, base?.luk],
+          ['魅力', u.cha, base?.cha],
+          ['意志', u.wil, base?.wil],
+        ];
+        const modRows: [string, number, number | undefined][] = [
+          ['全能增伤', mods.allDmgAmp, relicMods.allDmgAmp],
+          ['真实增伤', mods.trueDmgAmp, relicMods.trueDmgAmp],
+          ['物理增伤', mods.physDmgAmp, relicMods.physDmgAmp],
+          ['法术增伤', mods.magicDmgAmp, relicMods.magicDmgAmp],
+          ['全能减伤', mods.allDmgRed, relicMods.allDmgRed],
+          ['真实减伤', mods.trueDmgRed, relicMods.trueDmgRed],
+          ['物理减伤', mods.physDmgRed, relicMods.physDmgRed],
+          ['法术减伤', mods.magicDmgRed, relicMods.magicDmgRed],
+        ];
         return (
           <Modal title={u.name} onClose={() => setInfoUid(null)}>
             <div className="unit-info-flex">
               <Sprite className="unit-info-portrait" src={u.icon} alt={u.name} />
-              <div>
-                <div className="unit-info-roll">
-                  HP {Math.ceil(u.hp)}/{u.maxHp} · MP {Math.ceil(u.mp)}/{u.maxMp}
-                </div>
-                <div>攻击 {u.stats.atk} · 防御 {u.stats.def} · 法抗 {u.stats.mres}</div>
-                <div>速度 {u.stats.spdMin}-{u.stats.spdMax}</div>
-                {u.shield > 0 && <div>护盾 {u.shield}</div>}
+              <div className="unit-info-roll">
+                本回合速度掷点：<b>{u.roll}</b>
+                <span className="muted small">（基础 {spdText(u.stats.spdMin, u.stats.spdMax)}，同速判定 {u.tieBreak}）</span>
               </div>
             </div>
-            <div className="unit-info-buffs">
-              {(u.buffs ?? []).map((buf) => (
-                <span key={buf.id} className="buff-chip">{BUFF_LIBRARY[buf.id]?.name ?? buf.id}{buf.stacks > 1 ? `×${buf.stacks}` : ''}</span>
+            <h4>基础属性<span className="muted small">（局外面板含遗物，绿+红-为局内变化）</span></h4>
+            <div className="stat-grid unit-info-grid">
+              <span>生命 <b>{u.maxHp}</b>{d(u.maxHp, bStats?.hp)}</span>
+              <span>魔力 <b>{u.maxMp}</b>{d(u.maxMp, bStats?.mp)}</span>
+              <span>攻击 <b>{curAtk}</b>{d(curAtk, bStats?.atk)}</span>
+              <span>防御 <b>{curDef}</b>{d(curDef, bStats?.def)}</span>
+              <span>法抗 <b>{curMres}%</b>{d(curMres, bStats?.mres)}</span>
+              <span>速度 <b>{spdText(curSpd.min, curSpd.max)}</b>{d(curSpd.max, bStats?.spdMax)}</span>
+            </div>
+            <h4>额外6维</h4>
+            <div className="stat-grid unit-info-grid">
+              {six.map(([label, cur, bv]) => (
+                <span key={label}>{label} <b>{cur ?? 0}</b>{d(cur ?? 0, bv)}</span>
               ))}
             </div>
+            <h4>增伤 / 减伤</h4>
+            <div className="stat-grid unit-info-grid bp-mod-grid">
+              {modRows.map(([label, cur, bv]) => (
+                <span key={label}>{label} <b>{Math.round(cur * 100)}%</b>{dpct(cur, bv)}</span>
+              ))}
+            </div>
+            {u.buffs.length > 0 && (
+              <>
+                <h4>当前 BUFF</h4>
+                <div className="unit-info-buffs">
+                  {u.buffs.map((b, i) => {
+                    const def = BUFF_LIBRARY[b.id];
+                    return (
+                      <span key={i} className="buff-tag" title={def?.desc ?? b.id}>
+                        {def?.name ?? b.id} ×{b.stacks}
+                        {b.intensity > 1 ? `(强度${b.intensity})` : ''}
+                      </span>
+                    );
+                  })}
+                </div>
+              </>
+            )}
             <div className="modal-actions">
               <button className="btn primary" onClick={() => setInfoUid(null)}>关闭</button>
             </div>

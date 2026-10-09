@@ -16,6 +16,7 @@ import { UnitCard, type FloatText } from '../components/battle/StatBar';
 import { Sprite } from '../components/Sprite';
 import { Modal } from '../components/Modal';
 import { spdText } from '../ui/labels';
+import { useDragScroll } from '../hooks/useDragScroll';
 
 type Pending =
   | { kind: 'attack' }
@@ -67,6 +68,8 @@ export function Battle({ save, allies, aceUnits, enemyIds, mechanics, onRematch,
 }) {
   const itemsMap = useMemo(() => itemMapOf(save), [save]);
   const enemyDefs = useMemo(() => enemyMapOf(save), [save]);
+  // 行动按钮横向拖拽滚动（鼠标拖拽/触摸滑动）
+  const actionScroll = useDragScroll<HTMLDivElement>();
 
   const initial = useMemo(() => {
     const relicIds = [
@@ -647,7 +650,7 @@ export function Battle({ save, allies, aceUnits, enemyIds, mechanics, onRematch,
             ) : (
               <>
                 <div className="actor-tip">轮到【{actor.name}】行动</div>
-                <div className="action-btns">
+                <div className="action-btns" ref={actionScroll}>
                   <button
                     className={`btn${augustaEnhanced ? ' augusta-enhanced-skill' : ''}`}
                     disabled={!menu?.canAttack}

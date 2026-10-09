@@ -1,6 +1,6 @@
 // 联机客户端单例：连接房间服务、事件订阅分发
 import { io, type Socket } from 'socket.io-client';
-import { S2C } from './proto';
+import { C2S, S2C } from './proto';
 
 type Handler = (payload: unknown) => void;
 
@@ -36,7 +36,9 @@ class OnlineClient {
   connected = false;
   myPlayerId = '';
   roomId = '';
+  latency = 0; // 与服务器的往返延迟（毫秒）
   private handlers = new Map<string, Set<Handler>>();
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
 
   connect(url?: string): Promise<void> {
     if (this.socket) return Promise.resolve();
@@ -59,7 +61,24 @@ class OnlineClient {
           }
         });
       }
+      // 延迟统计：客户端定期发 ping，服务端回 pong，按往返时间更新 latency
+      s.on(S2C.pong, (d: unknown) => {
+        const t = (d as { t?: number } | undefined)?.t;
+        if (typeof t === 'number') this.latency = Math.max(0, Date.now() - t);
+      });
+      this.startPing();
     });
+  }
+
+  private startPing(): void {
+    this.stopPing();
+    this.pingTimer = setInterval(() => {
+      this.socket?.emit(C2S.ping, { t: Date.now() });
+    }, 3000);
+  }
+
+  private stopPing(): void {
+    if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null; }
   }
 
   on(event: string, cb: Handler): () => void {
@@ -76,6 +95,8 @@ class OnlineClient {
   }
 
   disconnect(): void {
+    this.stopPing();
+    this.latency = 0;
     this.socket?.close();
     this.socket = null;
     this.connected = false;

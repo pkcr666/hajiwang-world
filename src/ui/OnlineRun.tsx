@@ -12,6 +12,7 @@ import { itemMapOf } from '../data/content';
 import { haggleLabel, merchantSellPrice, potionSellPrice } from '../engine/nodes';
 import { torchEdgeKey } from '../engine/run';
 import { OnlineBag } from './OnlineBag';
+import { RELICS } from '../data/relics';
 
 interface Props {
   onBattle: () => void;
@@ -45,7 +46,35 @@ export default function OnlineRun({ onBattle, onBack }: Props) {
   const [rollMsg, setRollMsg] = useState('');
   const [showBag, setShowBag] = useState(false);
   const [bag, setBag] = useState<BagView | null>(null);
+  const [latency, setLatency] = useState(0);
+  const [relicToast, setRelicToast] = useState('');
   const submittedRef = useRef(new Set<string>());
+  const prevRelicsRef = useRef<string[] | null>(null);
+  const relicToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const t = setInterval(() => setLatency(online.latency), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // 独立获得遗物提示：对比本角色 perRelics 变化，新增即弹浮层提示（覆盖幸运掉落/事件/分配等所有获取路径）
+  useEffect(() => {
+    if (!run) return;
+    const myCharId = run.bindings[online.myPlayerId];
+    if (!myCharId) return;
+    const cur = run.perRelics[myCharId] ?? [];
+    const prev = prevRelicsRef.current;
+    if (prev === null) { prevRelicsRef.current = [...cur]; return; }
+    const prevSet = new Set(prev);
+    const added = cur.filter((id) => !prevSet.has(id));
+    if (added.length > 0) {
+      const names = added.map((id) => RELICS.find((r) => r.id === id)?.name ?? id).join('、');
+      setRelicToast(`📿 获得遗物《${names}》`);
+      if (relicToastTimer.current) clearTimeout(relicToastTimer.current);
+      relicToastTimer.current = setTimeout(() => setRelicToast(''), 3500);
+    }
+    prevRelicsRef.current = [...cur];
+  }, [run]);
 
   useEffect(() => {
     const off1 = online.on(S2C.runState, (d) => {
@@ -53,8 +82,16 @@ export default function OnlineRun({ onBattle, onBack }: Props) {
       setRun(r);
       if (r.phase === 'battle') onBattle();
     });
-    const off2 = online.on(S2C.voteStart, (d) => { setVote(d as VoteView); });
-    const off3 = online.on(S2C.voteUpdate, (d) => { setVote(d as VoteView); });
+    const off2 = online.on(S2C.voteStart, (d) => {
+      const v = d as VoteView;
+      setVote(v);
+      if (v.kind === 'move') setPersonal(null); // 个人节点全员完成后关闭商店/交易/招募界面
+    });
+    const off3 = online.on(S2C.voteUpdate, (d) => {
+      const v = d as VoteView;
+      setVote(v);
+      if (v.kind === 'move') setPersonal(null);
+    });
     const off4 = online.on(S2C.voteResult, (d) => {
       const r = d as { rolling?: boolean; choiceId?: string; rolledBy?: string };
       if (r.rolling) { setRollMsg('🎲 所有玩家已选择，正在随机…'); return; }
@@ -162,6 +199,7 @@ export default function OnlineRun({ onBattle, onBack }: Props) {
         <b style={{ fontSize: 16 }}>{run.dungeonId === 'starterVillage' ? '新手村（终局联系）' : run.dungeonName}</b>
         <span style={{ color: '#ffc46b', fontSize: 12 }}>副本</span>
         <span style={{ color: '#8fa0c8' }}>{run.actLabel}</span>
+        {latency > 0 && <span style={{ color: latency > 200 ? '#ff8f6b' : '#7fd8a8', fontSize: 12 }}>延迟 {latency}ms</span>}
         {myHp && <span style={s.hp}>HP {myHp.hp} / MP {myHp.mp}</span>}
         <span style={s.hp}>哈哈币 {run.coins}</span>
         <span style={s.hp}>火把 {run.torches}</span>
@@ -364,8 +402,9 @@ export default function OnlineRun({ onBattle, onBack }: Props) {
               <p className="muted small">藏品出售后从你的背包移走；药水按瓶出售（每瓶为购买价的一半）。</p>
             </div>
 
-            <button onClick={() => online.emit(C2S.nodeDone, {})} style={{ width: '100%', background: 'rgba(255,255,255,.08)', border: '1px solid #3a4a7c', color: '#c8d2ea', borderRadius: 8, padding: '9px', cursor: 'pointer', fontSize: 13, marginTop: 4 }}>
-              完成购买，等待其他玩家…
+            <button onClick={() => online.emit(C2S.nodeDone, {})} disabled={personal.myDone}
+              style={{ width: '100%', background: personal.myDone ? 'rgba(255,255,255,.04)' : 'rgba(255,255,255,.08)', border: '1px solid #3a4a7c', color: personal.myDone ? '#8fa0c8' : '#c8d2ea', borderRadius: 8, padding: '9px', cursor: personal.myDone ? 'default' : 'pointer', fontSize: 13, marginTop: 4 }}>
+              {personal.myDone ? `已退出，等待其他玩家（${sh.doneCount}/${sh.total}）…` : '完成购买，退出商店'}
             </button>
           </div>
         );
@@ -389,8 +428,9 @@ export default function OnlineRun({ onBattle, onBack }: Props) {
               </button>
             </div>
           ))}
-          <button onClick={() => online.emit(C2S.nodeDone, {})} style={{ width: '100%', background: 'rgba(255,255,255,.08)', border: '1px solid #3a4a7c', color: '#c8d2ea', borderRadius: 8, padding: '9px', cursor: 'pointer', fontSize: 13, marginTop: 4 }}>
-            完成交换，等待其他玩家…
+          <button onClick={() => online.emit(C2S.nodeDone, {})} disabled={personal.myDone}
+            style={{ width: '100%', background: personal.myDone ? 'rgba(255,255,255,.04)' : 'rgba(255,255,255,.08)', border: '1px solid #3a4a7c', color: personal.myDone ? '#8fa0c8' : '#c8d2ea', borderRadius: 8, padding: '9px', cursor: personal.myDone ? 'default' : 'pointer', fontSize: 13, marginTop: 4 }}>
+              {personal.myDone ? `已退出，等待其他玩家（${personal.trade.doneCount}/${personal.trade.total}）…` : '完成交换，退出'}
           </button>
         </div>
       )}
@@ -413,8 +453,9 @@ export default function OnlineRun({ onBattle, onBack }: Props) {
               </div>
             ))}
           </div>
-          <button onClick={() => online.emit(C2S.nodeDone, {})} style={{ width: '100%', background: 'rgba(255,255,255,.08)', border: '1px solid #3a4a7c', color: '#c8d2ea', borderRadius: 8, padding: '9px', cursor: 'pointer', fontSize: 13 }}>
-            完成招募，等待其他玩家…
+          <button onClick={() => online.emit(C2S.nodeDone, {})} disabled={personal.myDone}
+            style={{ width: '100%', background: personal.myDone ? 'rgba(255,255,255,.04)' : 'rgba(255,255,255,.08)', border: '1px solid #3a4a7c', color: personal.myDone ? '#8fa0c8' : '#c8d2ea', borderRadius: 8, padding: '9px', cursor: personal.myDone ? 'default' : 'pointer', fontSize: 13 }}>
+              {personal.myDone ? `已退出，等待其他玩家（${personal.recruit.doneCount}/${personal.recruit.total}）…` : '完成招募，退出'}
           </button>
         </div>
       )}
@@ -488,6 +529,15 @@ export default function OnlineRun({ onBattle, onBack }: Props) {
           <p className="muted">加载背包中…</p>
         </Modal>
       ))}
+
+      {/* 独立获得遗物浮层提示 */}
+      {relicToast && (
+        <div style={{ position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
+          background: 'linear-gradient(135deg,#3d2f14,#241a0c)', border: '1px solid #ffc46b', color: '#ffd9a0',
+          borderRadius: 10, padding: '10px 18px', fontSize: 14, fontWeight: 700, boxShadow: '0 6px 24px rgba(0,0,0,.35)' }}>
+          {relicToast}
+        </div>
+      )}
     </div>
   );
 }

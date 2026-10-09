@@ -474,6 +474,7 @@ export class RoomManager {
           recruit: { candidates: st?.candidates ?? [], picked: st?.picked, doneCount, total: online },
         };
       }
+      v.myDone = pp.done.has(p.playerId);
       this.io.to(sock).emit(S2C.personalView, v);
     }
   }
@@ -484,7 +485,7 @@ export class RoomManager {
     if (!room?.game || room.pendingPersonal?.kind !== 'shop') return;
     const p = this.playerOf(socket, room);
     if (!p?.char) return;
-    const r = buySlot(room.game, p.playerId, p.char.id, msg.slotId);
+    const r = buySlot(room.game, p.playerId, p.char.id, msg.slotId, mathRng);
     if (r.ok) {
       this.pushLog(room, `【${p.name}】${r.text}`);
       this.broadcastRun(room, 'map');
@@ -531,6 +532,7 @@ export class RoomManager {
     const r = shopSell(room.game, p.playerId, p.char.id, msg.itemId, !!msg.potion);
     if (r.ok) {
       this.pushLog(room, `【${p.name}】${r.text}`);
+      this.broadcastRun(room, 'map');
     } else {
       this.io.to(p.socketId).emit(S2C.err, { text: r.err });
     }

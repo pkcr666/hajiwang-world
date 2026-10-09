@@ -211,6 +211,35 @@ p { line-height: 1.6; }
 }
 .menu-btn.disabled { background: #1b1928; }
 
+/* 主界面左下角：版本号 + 清除缓存 */
+.home-corner {
+  position: fixed;
+  left: 14px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  z-index: 50;
+}
+.home-ver {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 1px;
+  opacity: .85;
+}
+.home-clear {
+  font-size: 12px;
+  padding: 4px 10px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.home-clear:hover { color: var(--danger); border-color: var(--danger); }
+
 /* ---------- 卡片 ---------- */
 .card {
   background: linear-gradient(180deg, #26203a, #211d30);
@@ -826,12 +855,16 @@ p { line-height: 1.6; }
   border-radius: 5px;
   padding: 20px;
   min-height: 420px;
+  /* 战场框裁切内部溢出：多部位 BOSS 部位卡不得向下覆盖行动面板 */
+  overflow: hidden;
 }
 .battle-side {
   display: flex;
   flex-wrap: wrap;
   gap: 18px;
   align-items: center;
+  min-height: 0;
+  max-height: 100%;
 }
 .battle-allies { justify-content: flex-start; }
 .battle-enemies { justify-content: flex-end; }
@@ -1057,6 +1090,8 @@ p { line-height: 1.6; }
   border: 2px solid var(--epic);
   border-radius: 5px;
   padding: 12px;
+  min-width: 0;
+  max-height: 100%;
 }
 .boss-img {
   width: 255px;
@@ -1064,8 +1099,17 @@ p { line-height: 1.6; }
   object-fit: cover;
   border: 2px solid var(--border);
   border-radius: 3px;
+  flex-shrink: 0;
 }
-.boss-parts-col { display: flex; flex-direction: column; gap: 6px; }
+.boss-parts-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
+}
 
 /* ===== BOSS 血条（战场框内顶部居中，绝对定位不挤压角色框）===== */
 .boss-hp-bar-area {
@@ -1168,6 +1212,12 @@ p { line-height: 1.6; }
   font-size: 12px;
   line-height: 1.55;
 }
+.log-panel-wrap { display: flex; flex-direction: column; min-height: 0; }
+.log-panel-wrap .log-panel { flex: 1; min-height: 0; }
+.log-panel-head { display: flex; justify-content: space-between; align-items: center; padding: 2px 2px 4px; font-size: 12px; font-weight: 700; color: #b6afd8; gap: 6px; }
+.log-more-btn { background: rgba(255,255,255,.06); border: 1px solid #3a4a7c; color: #aebada; border-radius: 4px; font-size: 11px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+.log-more-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
+.full-log-panel { background: rgba(18,15,28,.95); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; max-height: 58vh; overflow-y: auto; font-size: 12px; line-height: 1.6; }
 .log-line { color: var(--text); }
 .log-line:nth-child(odd) { color: #c9c3e0; }
 .action-panel {
@@ -1184,22 +1234,29 @@ p { line-height: 1.6; }
   color: var(--accent-2);
   letter-spacing: 1px;
 }
+/* 行动按钮：单行横向滑动条（技能多时左右滑动浏览；鼠标拖拽/触摸滑动见 useDragScroll） */
 .action-btns {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px;
-  align-content: flex-start;
+  overflow-x: auto;
+  overflow-y: hidden;
+  user-select: none;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
 }
 .action-btns .btn {
+  flex: 0 0 auto;          /* 按钮不压缩、不拉伸，宽度随内容，确保横向溢出可滚动 */
+  min-width: 96px;
   font-size: 15px;
   padding: 10px 18px;
 }
+/* skill-row 包装层直接融入滑动条，让其中的按钮直接参与横向排列 */
 .skill-row {
-  display: flex;
-  gap: 9px;
-  align-items: stretch;
+  display: contents;
 }
-.skill-row > .btn { flex: 1; min-width: 0; }
+.skill-row > .btn { flex: 0 0 auto; min-width: 96px; }
 .skill-btn { border-color: #6d56a8; }
 .skill-btn.enhance-btn {
   border-color: #d04040;
@@ -1536,10 +1593,16 @@ p { line-height: 1.6; }
 
 @media (max-width: 860px) {
   .slot-grid, .job-grid { grid-template-columns: 1fr; }
-  .create-detail, .detail-layout, .setup-cols, .battle-bottom, .battle-field {
+  /* 以下单列回退仅用于「桌面端窄窗口」；手机端走 [data-layout="mobile"] 专属布局，
+     否则会出现「三列网格但 VS 被隐藏 → 敌方被塞进 30px 中间轨道」的严重错位 */
+  html:not([data-layout="mobile"]) .create-detail,
+  html:not([data-layout="mobile"]) .detail-layout,
+  html:not([data-layout="mobile"]) .setup-cols,
+  html:not([data-layout="mobile"]) .battle-bottom,
+  html:not([data-layout="mobile"]) .battle-field {
     grid-template-columns: 1fr;
   }
-  .vs-mark { display: none; }
+  html:not([data-layout="mobile"]) .vs-mark { display: none; }
   .form-grid, .bag-editor { grid-template-columns: 1fr; }
 }
 
@@ -3531,6 +3594,9 @@ p { line-height: 1.6; }
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
+  /* 刘海/挖孔安全区：横屏下刘海位于左右两侧，留出硬件缺口避免遮挡 UI */
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 [data-layout="mobile"] .topbar {
@@ -3591,7 +3657,7 @@ p { line-height: 1.6; }
   min-height: 0;
   height: 100vh;
   height: 100dvh;
-  padding: 6px 10px;
+  padding: 6px 10px 2px;
   gap: 6px;
 }
 
@@ -3619,15 +3685,24 @@ p { line-height: 1.6; }
   width: 140px;
   padding: 5px;
 }
-[data-layout="mobile"] .unit-small { width: 168px; }
+[data-layout="mobile"] .unit-small { width: 150px; }
 [data-layout="mobile"] .unit-art {
   height: 80px;
   overflow: hidden;
 }
-[data-layout="mobile"] .unit-small .unit-art { height: 54px; }
+[data-layout="mobile"] .unit-small .unit-art { height: 44px; }
 [data-layout="mobile"] .unit-sprite { max-height: 80px; }
-[data-layout="mobile"] .unit-small .unit-sprite { max-height: 54px; }
+[data-layout="mobile"] .unit-small .unit-sprite { max-height: 44px; }
 [data-layout="mobile"] .unit-name-row { font-size: 12px; }
+/* 敌方散卡（非 BOSS 组）：收窄到 116px、间距 8px，
+   确保 3 只散怪也能在横屏单行排开不换行、不被战场裁切 */
+[data-layout="mobile"] .battle-enemies { gap: 8px; }
+[data-layout="mobile"] .battle-enemies > .unit-card { width: 116px; }
+/* 多部位 BOSS 部位卡：压缩血条高度，让更多部位同屏可见 */
+[data-layout="mobile"] .unit-small .bar { height: 16px; }
+[data-layout="mobile"] .unit-small .bar .bar-text { line-height: 16px; font-size: 9px; }
+[data-layout="mobile"] .unit-small .bar-thin { height: 12px; margin-top: 2px; }
+[data-layout="mobile"] .unit-small .bar-thin .bar-text { line-height: 12px; font-size: 8px; }
 
 /* BOSS 血条：收窄 */
 [data-layout="mobile"] .boss-hp-bar { width: 96%; padding: 4px 8px; }
@@ -3635,19 +3710,21 @@ p { line-height: 1.6; }
 [data-layout="mobile"] .boss-hp-track { height: 16px; }
 [data-layout="mobile"] .boss-hp-text { font-size: 11px; line-height: 16px; }
 
-/* 底部：日志 : 行动 = 3 : 7，技能栏占主导；整体下移并加高 */
+/* 底部：日志 : 行动 = 3 : 7，技能栏占主导；面板尽量贴底，把空间让给战场 */
 [data-layout="mobile"] .battle-bottom {
   grid-template-columns: 3fr 7fr;
   height: 210px;
   flex-shrink: 0;
   gap: 6px;
-  margin-top: 14px;
+  margin-top: 4px;
 }
 [data-layout="mobile"] .log-panel {
   padding: 8px;
   font-size: 11px;
   line-height: 1.4;
 }
+[data-layout="mobile"] .log-panel-head { font-size: 10px; padding-bottom: 2px; }
+[data-layout="mobile"] .log-more-btn { font-size: 10px; padding: 1px 5px; }
 [data-layout="mobile"] .action-panel {
   padding: 8px;
   gap: 8px;
@@ -3658,29 +3735,41 @@ p { line-height: 1.6; }
   font-size: 12px;
   letter-spacing: 0;
 }
-/* 技能按钮：手机端按内容自适应宽度，每行约 4 个自动换行 */
+/* 行动按钮：手机端同样单行横向滑动；按钮宽度随内容，长技能名完整显示 */
 [data-layout="mobile"] .action-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 8px;
 }
-/* 拆开 skill-row 的横向组合，让其中的按钮直接参与 action-btns 的换行布局 */
 [data-layout="mobile"] .skill-row {
   display: contents;
 }
 [data-layout="mobile"] .action-btns .btn {
-  flex: 0 0 auto;        /* 不拉伸、不压缩，宽度由内容决定 */
-  max-width: calc(25% - 6px);  /* 单行最多放 4 个 */
-  min-width: 0;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 84px;
+  min-height: 48px;        /* 统一触控高度 */
   font-size: 12px;
-  padding: 7px 10px;
+  padding: 8px 12px;
   text-align: center;
-  white-space: nowrap;
+  white-space: nowrap;     /* 滑动条内名称单行完整显示，超出部分靠滑动查看 */
+  line-height: 1.25;
 }
 [data-layout="mobile"] .btn-sub {
   font-size: 10px;
 }
+
+/* 拖拽滚动光标（仅鼠标/笔等精细指针）；触摸设备不显示抓取光标 */
+@media (pointer: fine) {
+  .action-btns { cursor: grab; }
+  .action-btns.dragging { cursor: grabbing; }
+}
+/* 拖拽进行中：临时禁用按钮交互（双保险，click 拦截在 useDragScroll 中处理） */
+.action-btns.dragging .btn { pointer-events: none; }
+/* 细滚动条：提供「还可横向滑动」的视觉提示 */
+.action-btns::-webkit-scrollbar { height: 6px; }
+.action-btns::-webkit-scrollbar-track { background: transparent; }
+.action-btns::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 3px; }
+.action-btns::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
 
 /* BOSS 卡：收窄立绘 */
 [data-layout="mobile"] .boss-img { width: 120px; height: 80px; }
@@ -3775,19 +3864,24 @@ p { line-height: 1.6; }
 }
 
 /* ---------- 按钮 ---------- */
+/* 触控区域优化：移动端按钮最小高度 ≥ 40px，避免误触、提升可点性 */
 [data-layout="mobile"] .btn {
   font-size: 12px;
   padding: 6px 10px;
+  min-height: 40px;
+  touch-action: manipulation;
 }
 [data-layout="mobile"] .btn.big {
   font-size: 14px;
   padding: 10px 24px;
   letter-spacing: 2px;
+  min-height: 48px;
 }
 [data-layout="mobile"] .menu-btn {
   font-size: 14px;
   padding: 10px;
   letter-spacing: 3px;
+  min-height: 48px;
 }
 
 /* ---------- 图鉴/藏品网格 ---------- */
@@ -4029,3 +4123,14 @@ p { line-height: 1.6; }
 .ace-detail-head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; }
 .ace-detail-stats { grid-template-columns: repeat(3, 1fr); margin-top: 8px; max-width: 320px; }
 
+/* ===== 创意工坊 ===== */
+.workshop-page .workshop-grid { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin: 20px 0; }
+.workshop-page .workshop-card { position: relative; width: min(420px, 90vw); padding: 22px; border-radius: 14px; border: 2px solid var(--accent, #8b7cf7); background: rgba(20, 20, 34, 0.85); box-shadow: 0 6px 24px rgba(0,0,0,0.45); text-align: left; }
+.workshop-page .workshop-card h2 { margin: 0 0 10px; font-size: 20px; }
+.workshop-page .workshop-card p { margin: 0 0 14px; line-height: 1.7; color: #cfcbe6; font-size: 14px; }
+.workshop-page .workshop-badge { position: absolute; top: -10px; right: -10px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+.workshop-page .workshop-badge.live { background: #2ecc71; color: #06210f; }
+.workshop-page .workshop-badge.soon { background: #666; color: #eee; }
+.workshop-page .workshop-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.workshop-page .workshop-actions .menu-btn { margin: 0; }
+.workshop-page .workshop-note { margin-top: 18px; font-size: 12px; color: #8d88a8; }

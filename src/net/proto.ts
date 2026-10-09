@@ -87,7 +87,21 @@ export interface UnitView {
 }
 
 // 弹窗（定向展示：ownerPlayerId 的玩家可作答，其余等待）
-export type PopupKind = 'kayn' | 'gates' | 'yinglong' | 'yuanShao';
+export type PopupKind = 'kayn' | 'gates' | 'yinglong' | 'yuanShao' | 'reaction' | 'brokenArk';
+
+// 反应式抉择弹窗上下文（虚化/哈气/破碎方舟：前端复用单人版弹窗 UI 渲染）
+export interface ReactionPopup {
+  attackerUid: string;
+  targetUid: string;
+  skillId: string;
+  action: 'attack' | 'skill' | 'special';
+}
+
+export interface BrokenArkPopup {
+  targetUid: string;
+  attackerUid?: string;
+  toHp: number;
+}
 
 export interface PopupView {
   kind: PopupKind;
@@ -95,6 +109,8 @@ export interface PopupView {
   desc: string;
   options: { id: string; label: string }[];
   ownerPlayerId: string;
+  reaction?: ReactionPopup; // kind==='reaction' 时携带
+  brokenArk?: BrokenArkPopup; // kind==='brokenArk' 时携带
 }
 
 // 合法行动视图（对齐单人版 getLegalActions：被动已过滤、自动目标已预计算）
@@ -185,6 +201,7 @@ export interface RecruitCandView {
 }
 export interface PersonalView {
   kind: 'shop' | 'trade' | 'recruit';
+  myDone?: boolean; // 本人是否已点退出（全员退出后关闭界面）
   shop?: {
     coins: number;
     slots: ShopSlotView[];
@@ -328,4 +345,5 @@ export const S2C = {
   toast: 'toast',
   result: 'run:result',
   err: 'err',
+  pong: 'pong',
 } as const;

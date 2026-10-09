@@ -2,7 +2,7 @@
 import type { BattleState, Combatant, Item, Rng, StageDef } from '../src/types';
 import { mathRng } from '../src/types';
 import {
-  advance, applyRelics, createBattle, currentActor, getLegalActions, playerAct, resolveBrokenArk,
+  advance, applyRelics, createBattle, currentActor, enemyAct, getLegalActions, playerAct, resolveBrokenArk,
   resolveGatesChoice, resolveKaynForm, resolveReaction, resolveRobChoice, resolveYinglongCheck,
 } from '../src/engine/battle';
 import { buildAceCombatant, buildAllyCombatant, buildEnemyCombatants } from '../src/engine/unit';
@@ -26,6 +26,7 @@ export class BattleHost {
   private uidToChar: Map<string, string>;
   private aceUidOwner: Map<string, string>; // 王牌单位 uid -> 拥有者 charId
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private activePopup: PopupView | null = null; // 当前待处理弹窗（viewFor 必须带上，否则客户端收不到）
 
   constructor(
     private game: GameState,
@@ -127,13 +128,14 @@ export class BattleHost {
     return this.players[0]!.playerId;
   }
 
-  private popup(kind: PopupKind, title: string, desc: string, options: { id: string; label: string }[], ownerPlayerId: string): void {
-    const p: PopupView = { kind, title, desc, options, ownerPlayerId };
+  private popup(kind: PopupKind, title: string, desc: string, options: { id: string; label: string }[], ownerPlayerId: string, extra?: { reaction?: PopupView['reaction']; brokenArk?: PopupView['brokenArk'] }): void {
+    const p: PopupView = { kind, title, desc, options, ownerPlayerId, ...(extra ?? {}) };
+    this.activePopup = p;
     this.cb.broadcast(this.buildView(p));
   }
 
   private broadcast(): void {
-    this.cb.broadcast(this.buildView(undefined));
+    this.cb.broadcast(this.buildView(this.activePopup ?? undefined));
   }
 
   buildView(popup?: PopupView): BattleView {
@@ -174,7 +176,7 @@ export class BattleHost {
   }
 
   viewFor(playerId: string): BattleView {
-    const v = this.buildView(undefined);
+    const v = this.buildView(this.activePopup ?? undefined);
     v.myAllyUid = null;
     v.myUnits = [];
     const p = this.players.find((x) => x.playerId === playerId);
@@ -264,15 +266,27 @@ export class BattleHost {
       this.popup('yinglong', '应龙六维判定', `选择判定属性（目标值 ${s.yinglongCheck.target}）：`, opts, this.hostId());
       return;
     }
-    // 反应式弹窗（虚化/哈气/破碎方舟）：联机 v1 自动拒绝，避免卡死
+    // 反应式弹窗（虚化/哈气/破碎方舟）：发给被攻击单位的主人选择
     if (s.pendingReaction) {
-      this.state = resolveReaction(s, false).state;
-      this.tick(guard + 1);
+      const pr = s.pendingReaction;
+      const owner = this.ownerOf(pr.targetUid) ?? this.hostId();
+      this.popup('reaction', '反应式抉择', '我方单位即将受到攻击，是否使用反应式技能应对？', [
+        { id: 'yes', label: '使用' },
+        { id: 'no', label: '不使用' },
+      ], owner, {
+        reaction: { attackerUid: pr.attackerUid, targetUid: pr.targetUid, skillId: pr.skillId, action: pr.action.kind },
+      });
       return;
     }
     if (s.pendingBrokenArk) {
-      this.state = resolveBrokenArk(s, false).state;
-      this.tick(guard + 1);
+      const pb = s.pendingBrokenArk;
+      const owner = this.ownerOf(pb.targetUid) ?? this.hostId();
+      this.popup('brokenArk', '破碎方舟', '我方单位即将受到伤害，是否启动破碎方舟抵消？', [
+        { id: 'yes', label: '启动方舟' },
+        { id: 'no', label: '硬抗' },
+      ], owner, {
+        brokenArk: { targetUid: pb.targetUid, attackerUid: pb.attackerUid, toHp: pb.toHp },
+      });
       return;
     }
     const actor = s.order[s.cursor] ? (s.allies.find((a) => a.uid === s.order[s.cursor]) ?? s.enemies.find((e) => e.uid === s.order[s.cursor])) : null;
@@ -281,8 +295,15 @@ export class BattleHost {
       this.broadcast();
       return;
     }
-    // 敌方行动 / 推进
-    const next = advance(s, this.rng);
+    // 敌方行动：执行敌方动作（可能触发反应/破碎方舟弹窗），再推进光标
+    const r = enemyAct(s, this.rng);
+    this.state = r.state;
+    if (this.state.result) { this.finish(); return; }
+    if (this.state.pendingReaction || this.state.pendingBrokenArk) {
+      this.tick(guard + 1); // 弹出反应式/破碎方舟抉择，等玩家选择
+      return;
+    }
+    const next = advance(this.state, this.rng);
     this.state = next;
     this.tick(guard + 1);
   }
@@ -291,7 +312,7 @@ export class BattleHost {
   onAct(playerId: string, action: { type: 'attack'; targetUid: string } | { type: 'skill'; skillId: string; targetUid?: string; enhance?: boolean } | { type: 'item'; itemId: string; targetUid: string }): { ok: boolean; err?: string } {
     if (this.result) return { ok: false, err: '战斗已结束' };
     const s = this.state;
-    if (s.pendingChoice || s.pendingKaynForm || s.pendingGatesChoice || s.yinglongCheck?.pending) {
+    if (s.pendingChoice || s.pendingKaynForm || s.pendingGatesChoice || s.yinglongCheck?.pending || s.pendingReaction || s.pendingBrokenArk) {
       return { ok: false, err: '请先处理弹窗选择' };
     }
     const actor = currentActor(s);
@@ -315,8 +336,12 @@ export class BattleHost {
       : s.pendingKaynForm ? (this.ownerOf(s.pendingKaynForm.uid) ?? this.hostId())
       : s.pendingGatesChoice ? (this.ownerOf(s.pendingGatesChoice.uid) ?? this.hostId())
       : s.yinglongCheck?.pending ? this.hostId()
+      : s.pendingReaction ? (this.ownerOf(s.pendingReaction.targetUid) ?? this.hostId())
+      : s.pendingBrokenArk ? (this.ownerOf(s.pendingBrokenArk.targetUid) ?? this.hostId())
       : null;
     if (owner !== playerId) return { ok: false, err: '该弹窗不属于你' };
+    let afterReaction = false; // 反应/破碎方舟：需在结算后推进光标
+    let replaySpecial = false; // 拒绝虚化（特殊AI直伤/群体）：需重放敌方行动
     if (s.pendingChoice && msg.kind === 'yuanShao') {
       const leader = this.players[0]!.char;
       const cha = (leader.extra?.cha ?? 0);
@@ -334,8 +359,35 @@ export class BattleHost {
       const ally = s.allies.find((a) => a.alive);
       const allyUid = msg.allyUid ?? ally?.uid ?? s.order[s.cursor] ?? '';
       this.state = resolveYinglongCheck(s, (msg.stat ?? 'str') as 'str', allyUid).state;
+    } else if (s.pendingReaction && msg.kind === 'reaction') {
+      const rr = resolveReaction(s, msg.accept === true);
+      this.state = rr.state;
+      afterReaction = true;
+      replaySpecial = !!rr.state.replaySpecial;
+    } else if (s.pendingBrokenArk && msg.kind === 'brokenArk') {
+      this.state = resolveBrokenArk(s, msg.accept === true).state;
+      afterReaction = true;
     } else {
       return { ok: false, err: '弹窗状态不一致' };
+    }
+    this.activePopup = null; // 弹窗已处理，后续广播不再携带
+    if (afterReaction) {
+      // 反应/破碎方舟结算后：继续推进敌方回合
+      if (this.state.result) { this.finish(); return { ok: true }; }
+      if (this.state.pendingReaction || this.state.pendingBrokenArk) {
+        this.tick(); // 连续触发反应/方舟抉择
+        return { ok: true };
+      }
+      if (replaySpecial) {
+        // 拒绝虚化（特殊AI直伤/群体）：重新执行该行动（enemyAct 会跳过反应检查）
+        const er = enemyAct(this.state, this.rng);
+        this.state = er.state;
+        if (this.state.result) { this.finish(); return { ok: true }; }
+        if (this.state.pendingReaction || this.state.pendingBrokenArk) { this.tick(); return { ok: true }; }
+      }
+      this.state = advance(this.state, this.rng);
+      this.tick();
+      return { ok: true };
     }
     this.tick();
     return { ok: true };

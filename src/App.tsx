@@ -8,6 +8,7 @@ import {
 } from './save/storage';
 import { useDevice } from './hooks/useDevice';
 import { Home } from './pages/Home';
+import { Workshop } from './pages/Workshop';
 import { Roster } from './pages/Roster';
 import { CreateCharacter } from './pages/CreateCharacter';
 import { Backpack } from './pages/Backpack';
@@ -97,6 +98,7 @@ type View =
   | { p: 'onlineLobby' }
   | { p: 'onlineRun' }
   | { p: 'onlineBattle' }
+  | { p: 'workshop' }
   | { p: 'battle'; allies: Character[]; aceUnits?: AceUnit[]; enemyIds: string[]; mechanics?: StageMechanic[]; battleKey: number };
 
 export default function App() {
@@ -380,6 +382,14 @@ export default function App() {
     return (
       <Shell onHome={goHome} showHome={false}>
         <Home go={(p) => setView({ p })} />
+      </Shell>
+    );
+  }
+
+  if (view.p === 'workshop') {
+    return (
+      <Shell onHome={goHome}>
+        <Workshop onBack={goHome} />
       </Shell>
     );
   }

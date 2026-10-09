@@ -1,15 +1,21 @@
 import type { CSSProperties } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { useFullscreen } from '../hooks/useFullscreen';
 import { useDevice } from '../hooks/useDevice';
 
 /**
  * 全屏按钮：全局悬浮右下角，PC 与手机端均可使用。
  * 移动端增大点击热区；点击进入/退出浏览器全屏。
+ *
+ * 原生壳（Android/iOS APK）：应用默认即为沉浸式全屏，无需浏览器全屏按钮，
+ * 故在原生环境下不渲染，避免「点全屏无变化」的误导。
  */
 export default function FullscreenBtn() {
   const { isFull, toggleFull } = useFullscreen();
   const layout = useDevice();
   const isMobile = layout === 'mobile';
+
+  if (Capacitor.isNativePlatform()) return null;
 
   const style: CSSProperties = {
     position: 'fixed',

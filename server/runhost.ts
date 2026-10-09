@@ -208,6 +208,27 @@ export function relicStacksOf(game: GameState, charId: string): Record<string, n
   return game.perRelicStacks[charId] ?? {};
 }
 
+// 发放个人独享遗物的唯一入口（所有获取路径必须经过此处）：
+// 若该角色已拥有此遗物 → 自动替换为随机一件未拥有的在池遗物（inPool !== false）；
+// 随机池已全部集齐时返回 full，绝不重复堆叠
+export type GrantRelicResult =
+  | { kind: 'gained'; relicId: string; replaced: boolean }
+  | { kind: 'full' };
+
+export function grantPerRelic(game: GameState, charId: string, relicId: string, rng: Rng): GrantRelicResult {
+  const list = game.perRelics[charId] ?? (game.perRelics[charId] = []);
+  if (!list.includes(relicId)) {
+    list.push(relicId);
+    return { kind: 'gained', relicId, replaced: false };
+  }
+  const owned = new Set(list);
+  const pool = RELICS.filter((x) => x.inPool !== false && !owned.has(x.id));
+  if (pool.length === 0) return { kind: 'full' };
+  const pick = pool[rng.int(0, pool.length - 1)];
+  list.push(pick.id);
+  return { kind: 'gained', relicId: pick.id, replaced: true };
+}
+
 // 角色六维值（事件六维判定：队长六维 + 装备 extraBonus + 遗物六维，与单人版同源）
 function charStat(game: GameState, c: Character, key: string): number {
   const k = key as ExtraKey;
@@ -304,6 +325,7 @@ export function buildCombatRewards(
 ): { pool: LootItem[]; texts: string[] } {
   const run = game.run;
   const n = players.length;
+  const level = DUNGEONS.find((d) => d.id === run.dungeonId)?.level ?? 30;
   const ctx: DropContext = {
     items: [...game.itemMap.values()],
     relics: RELICS,
@@ -322,6 +344,21 @@ export function buildCombatRewards(
   const poolItem = (it: Item) => pool.push({ key: key(), kind: 'item', itemId: it.id, label: it.name, rarity: it.rarity });
   const poolRelic = (rl: { id: string; name: string; rarity: string }) => pool.push({ key: key(), kind: 'relic', relicId: rl.id, label: rl.name, rarity: rl.rarity });
   const addCoin = (c: number) => { for (const p of players) gainCoins(game, p.playerId, c); }; // 币一人一份（各入自己口袋）
+  // 非随机池遗物（inPool:false，如求救信/巨大龟壳/祭坛等）：掉落时全体玩家各获得一份，不进入投票池
+  const grantAll = (rid: string, name: string) => {
+    const pickupIds: string[] = [];
+    for (const p of players) {
+      const gr = grantPerRelic(game, p.char.id, rid, rng);
+      if (gr.kind === 'full') {
+        texts.push(`【${p.name}】已拥有《${name}》，且随机遗物池已集齐`);
+        continue;
+      }
+      if (gr.replaced) texts.push(`【${p.name}】《${name}》已拥有，替换为遗物《${RELIC_MAP[gr.relicId]?.name ?? gr.relicId}》`);
+      pickupIds.push(gr.relicId);
+    }
+    texts.push(`全员获得遗物《${name}》`);
+    if (pickupIds.length > 0) texts.push(...applyRelicPickupEffects(game, pickupIds));
+  };
   // 藏品候选：去重收集，供按人数凑 n 件不同物品进池
   const itemCands: Item[] = [];
   const candSeen = new Set<string>();
@@ -335,15 +372,15 @@ export function buildCombatRewards(
   if (stageDrop && (stageDrop.kind === 'item' || stageDrop.kind === 'consumable')) pushCand(stageDrop.item);
   if (stageDrop?.kind === 'coin') addCoin(stageDrop.count);
   else if (stageDrop?.kind === 'material') { for (const p of players) addMat(p.char.id, stageDrop.item.id, stageDrop.item.count ?? 1); }
-  else if (stageDrop?.kind === 'relic') { poolRelic(stageDrop.relic); ctx.owned?.add(stageDrop.relic.id); }
+  else if (stageDrop?.kind === 'relic') { if (stageDrop.relic.inPool === false) { grantAll(stageDrop.relic.id, stageDrop.relic.name); } else { poolRelic(stageDrop.relic); ctx.owned?.add(stageDrop.relic.id); } }
   else if (stageDrop?.kind === 'torch') { run.torches = Math.min(TORCH_CAP, run.torches + stageDrop.count); texts.push(`掉落 ${stageDrop.count} 根火把（共享）`); }
-  for (const rl of fixed.relics) { poolRelic(rl); ctx.owned?.add(rl.id); }
+  for (const rl of fixed.relics) { if (rl.inPool === false) { grantAll(rl.id, rl.name); } else { poolRelic(rl); ctx.owned?.add(rl.id); } }
 
   if (run.dungeonId === 'preWallCalamity') {
     // 藏品按人数出：凑 n 件不同物品（不足时从掉落池补，避免同件重复入池）
     if (itemCands.length < n) {
       for (let t = 0; t < 30 && itemCands.length < n; t++) {
-        const r = resolveDrop('item', 'pool', { ...ctx, owned: candSeen }, rng, {});
+        const r = resolveDrop('item', 'pool', { ...ctx, owned: candSeen }, rng, { level });
         if (r && (r.kind === 'item' || r.kind === 'consumable')) pushCand(r.item);
       }
     }
@@ -351,32 +388,34 @@ export function buildCombatRewards(
     const weights = { uncommon: 40, fine: 30, rare: 20, epic: 10 };
     const luckOf = (p: PlayerChar) =>
       characterLuck(p.char, game.itemMap) + sumRelicSixStats(game.perRelics[p.char.id] ?? []).luk;
-    // 普通作战：每人独立幸运判定，仅刷自己未拥有
-    if (!node.urgent && node.kind !== 'boss') {
-      for (const p of players) {
-        const luck = luckOf(p);
-        if (rng.int(1, 100) > 20 + luck / 2) continue;
-        const owned = new Set(game.perRelics[p.char.id] ?? []);
-        let r = resolveDrop('relic', 'pool', { ...ctx, owned }, rng, { rarityWeights: weights });
-        if (!r) {
-          const rest = RELICS.filter((x) => x.inPool !== false && !owned.has(x.id));
-          if (rest.length > 0) r = { kind: 'relic', relic: rest[rng.int(0, rest.length - 1)] };
-        }
-        if (r?.kind === 'relic') {
-          game.perRelics[p.char.id].push(r.relic.id);
-          texts.push(`【${p.name}】因幸运（${luck}）获得遗物《${r.relic.name}》`);
-          texts.push(...applyRelicPickupEffects(game, [r.relic.id]));
+    // 概率判定（所有作战均独立结算，与紧急/BOSS 必掉互不影响）：每人按自身幸运判定，仅刷自己未拥有
+    for (const p of players) {
+      const luck = luckOf(p);
+      if (rng.int(1, 100) > 20 + luck / 2) continue;
+      const owned = new Set(game.perRelics[p.char.id] ?? []);
+      let r = resolveDrop('relic', 'pool', { ...ctx, owned }, rng, { rarityWeights: weights });
+      if (!r) {
+        const rest = RELICS.filter((x) => x.inPool !== false && !owned.has(x.id));
+        if (rest.length > 0) r = { kind: 'relic', relic: rest[rng.int(0, rest.length - 1)] };
+      }
+      if (r?.kind === 'relic') {
+        const gr = grantPerRelic(game, p.char.id, r.relic.id, rng);
+        if (gr.kind === 'gained') {
+          const finalName = gr.replaced ? (RELIC_MAP[gr.relicId]?.name ?? gr.relicId) : r.relic.name;
+          texts.push(`【${p.name}】因幸运（${luck}）获得遗物《${finalName}》${gr.replaced ? '（重复遗物已替换）' : ''}`);
+          texts.push(...applyRelicPickupEffects(game, [gr.relicId]));
+        } else {
+          texts.push(`【${p.name}】已拥有《${r.relic.name}》，且随机遗物池已集齐`);
         }
       }
-    } else {
-      // 紧急/BOSS 额外掉落：按人数出 N 件全员未拥有的遗物，进投票池供选择
-      const allOwned = new Set(Object.values(game.perRelics).flat());
-      const avail = RELICS.filter((x) => x.inPool !== false && !allOwned.has(x.id));
+    }
+    // 紧急/BOSS 额外掉落：按人数出 N 件随机池遗物（允许是玩家已拥有的，归属时去重替换）进投票池
+    if (node.urgent || node.kind === 'boss') {
+      const avail = RELICS.filter((x) => x.inPool !== false);
       const shuffled = [...avail].sort(() => rng.int(0, 1) - 0.5);
       const picked = shuffled.slice(0, n);
       for (const rl of picked) {
         poolRelic(rl);
-        allOwned.add(rl.id);
       }
       texts.push(`紧急掉落：${picked.length} 件遗物进入选择池`);
     }
@@ -385,46 +424,48 @@ export function buildCombatRewards(
     const stoneId = stoneRoll <= 60 ? 'it_stone_rare' : stoneRoll <= 90 ? 'it_stone_epic' : 'it_stone_legendary';
     for (const p of players) addMat(p.char.id, stoneId, 1);
   } else {
-    // 新手村等非灾厄：普通作战每人按自己幸运 + 1D50 判定（遗物直接进自己独享）；
-    // 紧急/BOSS：按人数出 N 件全员未拥有的遗物进投票池自由选择
-    const isBoss = node.kind === 'boss' || !!node.urgent;
-    if (isBoss) {
-      const allOwned = new Set(Object.values(game.perRelics).flat());
-      const avail = RELICS.filter((x) => x.inPool !== false && !allOwned.has(x.id));
+    // 新手村等非灾厄：每人按自己幸运 + 1D50 判定（遗物直接进自己独享，所有作战均结算）；
+    // 紧急/BOSS 额外：按人数出 N 件随机池遗物进投票池自由选择
+    for (const p of players) {
+      const luck = characterLuck(p.char, game.itemMap) + sumRelicSixStats(game.perRelics[p.char.id] ?? []).luk;
+      for (const l of rollLuckyDrops(stage, luck, { ...ctx, owned: new Set(game.perRelics[p.char.id] ?? []) }, rng)) {
+        if (!l.success || !l.reward) continue;
+        const r = l.reward;
+        if (r.kind === 'relic') {
+          const gr = grantPerRelic(game, p.char.id, r.relic.id, rng);
+          if (gr.kind === 'gained') {
+            const finalName = gr.replaced ? (RELIC_MAP[gr.relicId]?.name ?? gr.relicId) : r.relic.name;
+            texts.push(`【${p.name}】幸运判定 ${l.total}（幸运 ${luck} + 1D50[${l.roll}]）通过，获得遗物《${finalName}》${gr.replaced ? '（重复遗物已替换）' : ''}`);
+            texts.push(...applyRelicPickupEffects(game, [gr.relicId]));
+          } else {
+            texts.push(`【${p.name}】幸运判定通过，但已拥有《${r.relic.name}》且随机遗物池已集齐`);
+          }
+        } else if (r.kind === 'item' || r.kind === 'consumable') {
+          pushCand(r.item);
+        } else if (r.kind === 'coin') {
+          addCoin(r.count);
+        } else if (r.kind === 'material') {
+          for (const q of players) addMat(q.char.id, r.item.id, r.item.count ?? 1);
+        } else if (r.kind === 'torch') {
+          run.torches = Math.min(TORCH_CAP, run.torches + r.count);
+          texts.push(`掉落 ${r.count} 根火把（共享）`);
+        }
+      }
+    }
+    // 紧急/BOSS 额外掉落：按人数出 N 件随机池遗物（允许玩家已拥有，归属时去重替换）
+    if (node.urgent || node.kind === 'boss') {
+      const avail = RELICS.filter((x) => x.inPool !== false);
       const shuffled = [...avail].sort(() => rng.int(0, 1) - 0.5);
       const picked = shuffled.slice(0, n);
       for (const rl of picked) {
         poolRelic(rl);
-        allOwned.add(rl.id);
       }
       if (picked.length > 0) texts.push(`紧急掉落：${picked.length} 件遗物进入选择池`);
-    } else {
-      for (const p of players) {
-        const luck = characterLuck(p.char, game.itemMap) + sumRelicSixStats(game.perRelics[p.char.id] ?? []).luk;
-        for (const l of rollLuckyDrops(stage, luck, { ...ctx, owned: new Set(game.perRelics[p.char.id] ?? []) }, rng)) {
-          if (!l.success || !l.reward) continue;
-          const r = l.reward;
-          if (r.kind === 'relic') {
-            game.perRelics[p.char.id].push(r.relic.id);
-            texts.push(`【${p.name}】幸运判定 ${l.total}（幸运 ${luck} + 1D50[${l.roll}]）通过，获得遗物《${r.relic.name}》`);
-            texts.push(...applyRelicPickupEffects(game, [r.relic.id]));
-          } else if (r.kind === 'item' || r.kind === 'consumable') {
-            pushCand(r.item);
-          } else if (r.kind === 'coin') {
-            addCoin(r.count);
-          } else if (r.kind === 'material') {
-            for (const q of players) addMat(q.char.id, r.item.id, r.item.count ?? 1);
-          } else if (r.kind === 'torch') {
-            run.torches = Math.min(TORCH_CAP, run.torches + r.count);
-            texts.push(`掉落 ${r.count} 根火把（共享）`);
-          }
-        }
-      }
     }
     // 藏品按人数凑 n 件不同物品进池（不足时从掉落池补，避免同件重复）
     if (itemCands.length < n) {
       for (let t = 0; t < 30 && itemCands.length < n; t++) {
-        const r = resolveDrop('item', 'pool', { ...ctx, owned: candSeen }, rng, {});
+        const r = resolveDrop('item', 'pool', { ...ctx, owned: candSeen }, rng, { level });
         if (r && (r.kind === 'item' || r.kind === 'consumable')) pushCand(r.item);
       }
     }
@@ -435,8 +476,10 @@ export function buildCombatRewards(
     run.torches = Math.min(TORCH_CAP, run.torches + 1);
     texts.push('掉落 1 根火把');
   }
-  game.lootPool = pool;
-  return { pool, texts };
+  // 遗物优先排列：投票候选只取池前 N 件，紧急/BOSS 必掉的遗物必须排在藏品之前才能被玩家选中
+  const relicFirst = [...pool.filter((l) => l.kind === 'relic'), ...pool.filter((l) => l.kind !== 'relic')];
+  game.lootPool = relicFirst;
+  return { pool: relicFirst, texts };
 }
 
 // 掉落投票裁决（每人一件；撞车随机一人获得，剩余未选/落选者从剩余池随机补一件，池空补金币）
@@ -447,8 +490,10 @@ export function resolveLootVote(
   rng: Rng,
 ): { texts: string[] } {
   const pool = [...game.lootPool];
-  const candidates = pool.slice(0, players.length);
-  const rest = pool.slice(players.length);
+  // 候选按遗物优先排序：紧急/BOSS 必掉的遗物必须先于藏品被选中，事件追加的遗物亦然
+  const ordered = [...pool.filter((l) => l.kind === 'relic'), ...pool.filter((l) => l.kind !== 'relic')];
+  const candidates = ordered.slice(0, players.length);
+  const rest = ordered.slice(players.length);
   const winnerOf = new Map<string, LootItem>();
   const unassigned = new Set(candidates.map((c) => c.key));
   const pickerOf = new Map<string, string[]>(); // lootKey -> playerIds（第一志愿）
@@ -488,9 +533,30 @@ export function resolveLootVote(
       continue;
     }
     if (loot.kind === 'relic' && loot.relicId) {
-      game.perRelics[p.char.id].push(loot.relicId);
-      texts.push(`【${p.name}】获得遗物《${loot.label}》`);
-      texts.push(...applyRelicPickupEffects(game, [loot.relicId]));
+      // 非随机池遗物（求救信/巨大龟壳等）：全员各得一份，不参与独享归属
+      const rlDef = RELIC_MAP[loot.relicId];
+      if (rlDef?.inPool === false) {
+        const pickupIds: string[] = [];
+        for (const q of players) {
+          const gr = grantPerRelic(game, q.char.id, loot.relicId, rng);
+          if (gr.kind === 'full') continue;
+          if (gr.replaced) texts.push(`【${q.name}】《${loot.label}》已拥有，替换为遗物《${RELIC_MAP[gr.relicId]?.name ?? gr.relicId}》`);
+          pickupIds.push(gr.relicId);
+        }
+        texts.push(`全员获得遗物《${loot.label}》`);
+        texts.push(...applyRelicPickupEffects(game, pickupIds));
+        continue;
+      }
+      // 归属去重：已拥有 → 经 grantPerRelic 替换为未拥有的随机池遗物（池内集齐则补偿金币）
+      const gr = grantPerRelic(game, p.char.id, loot.relicId, rng);
+      if (gr.kind === 'gained') {
+        if (gr.replaced) texts.push(`【${p.name}】《${loot.label}》已拥有，替换为遗物《${RELIC_MAP[gr.relicId]?.name ?? gr.relicId}》`);
+        else texts.push(`【${p.name}】获得遗物《${loot.label}》`);
+        texts.push(...applyRelicPickupEffects(game, [gr.relicId]));
+      } else {
+        gainCoins(game, p.playerId, 200);
+        texts.push(`【${p.name}】随机池遗物已集齐，《${loot.label}》已拥有，补偿 200 哈哈币`);
+      }
     } else if (loot.itemId) {
       game.perItems[p.char.id].push(loot.itemId);
       texts.push(`【${p.name}】获得藏品【${loot.label}】`);
@@ -575,7 +641,7 @@ export function applyEventChoice(
   const beforeRelics = [...game.run.relics];
   // 记录全部角色的库存快照：事件新增藏品（可能落在队长或其它角色背包）统一取出进投票池，由玩家选择归属
   const beforeInvByChar = new Map<string, string[]>();
-  for (const c of game.save.characters) beforeInvByChar.set(c.id, [...(c.inventory ?? [])]);
+  for (const c of game.save.characters) { if (!c) continue; beforeInvByChar.set(c.id, [...(c.inventory ?? [])]); }
   const coinsBefore = game.run.coins;
   const res = applyEventOption({
     save: game.save,
@@ -604,15 +670,25 @@ export function applyEventChoice(
     game.run.relics = game.run.relics.filter((r) => r !== rid);
     const rel = RELICS.find((x) => x.id === rid);
     if (directRelicIds.has(rid)) {
-      for (const p of players) game.perRelics[p.char.id].push(rid);
+      const pickupIds: string[] = [];
+      for (const p of players) {
+        const gr = grantPerRelic(game, p.char.id, rid, rng);
+        if (gr.kind === 'full') {
+          res.texts.push(`【${p.name}】已拥有《${rel?.name ?? rid}》，且随机遗物池已集齐`);
+          continue;
+        }
+        if (gr.replaced) res.texts.push(`【${p.name}】《${rel?.name ?? rid}》已拥有，替换为遗物《${RELIC_MAP[gr.relicId]?.name ?? gr.relicId}》`);
+        pickupIds.push(gr.relicId);
+      }
       res.texts.push(`【${leader.name}】事件判定成功：全体玩家各获得遗物《${rel?.name ?? rid}》（事件固定奖励）`);
-      res.texts.push(...applyRelicPickupEffects(game, [rid]));
+      res.texts.push(...applyRelicPickupEffects(game, pickupIds));
     } else {
       game.lootPool.push({ key: `ev_r_${rid}`, kind: 'relic', relicId: rid, label: rel?.name ?? rid, rarity: rel?.rarity });
     }
   }
   // 事件新增藏品（任意角色背包新增）→ 全部取出进投票池，供全员选择归属
   for (const c of game.save.characters) {
+    if (!c) continue;
     const before = beforeInvByChar.get(c.id) ?? [];
     const gained = (c.inventory ?? []).filter((id) => !before.includes(id));
     if (gained.length === 0) continue;
@@ -1025,7 +1101,7 @@ export function shopSell(game: GameState, playerId: string, charId: string, item
 }
 
 // 购买商店物品：扣该玩家个人币，物品入该玩家自己的传奇角色（不能给别的角色）
-export function buySlot(game: GameState, playerId: string, charId: string, slotId: string): { ok: boolean; text?: string; err?: string } {
+export function buySlot(game: GameState, playerId: string, charId: string, slotId: string, rng: Rng): { ok: boolean; text?: string; err?: string } {
   const st = game.shopState[playerId];
   if (!st) return { ok: false, err: '当前不在商店' };
   if (st.bought.includes(slotId)) return { ok: false, err: '已购买' };
@@ -1035,6 +1111,14 @@ export function buySlot(game: GameState, playerId: string, charId: string, slotI
   const price = shopSlotFinalPrice(game, playerId, st, slot, idx);
   const mine = game.perCoins[playerId] ?? 0;
   if (mine < price) return { ok: false, err: `哈哈币不足（需要 ${price}，你有 ${mine}）` };
+  // 遗物商品：已拥有且随机池也集齐 → 提前拦截，避免扣款后无法发放
+  if (slot.kind === 'relic' && slot.relicId) {
+    const ownedNow = game.perRelics[charId] ?? [];
+    if (ownedNow.includes(slot.relicId)
+      && !RELICS.some((x) => x.inPool !== false && !ownedNow.includes(x.id))) {
+      return { ok: false, err: '你已拥有该遗物，且随机遗物池已集齐' };
+    }
+  }
   gainCoins(game, playerId, -price);
   st.bought.push(slotId);
   if (slot.kind === 'item' && slot.itemId) {
@@ -1042,9 +1126,15 @@ export function buySlot(game: GameState, playerId: string, charId: string, slotI
     return { ok: true, text: `购买藏品【${slot.label}】（-${price} 币）` };
   }
   if (slot.kind === 'relic' && slot.relicId) {
-    game.perRelics[charId].push(slot.relicId);
-    const extras = applyRelicPickupEffects(game, [slot.relicId]);
-    return { ok: true, text: `购买遗物《${slot.label}》（-${price} 币）${extras.length > 0 ? '；' + extras.join('；') : ''}` };
+    const gr = grantPerRelic(game, charId, slot.relicId, rng);
+    if (gr.kind !== 'gained') { // 兜底：理论上前面已拦截，退款并撤销
+      gainCoins(game, playerId, price);
+      st.bought.pop();
+      return { ok: false, err: '随机遗物池已集齐' };
+    }
+    const finalLabel = gr.replaced ? (RELIC_MAP[gr.relicId]?.name ?? slot.label) : slot.label;
+    const extras = applyRelicPickupEffects(game, [gr.relicId]);
+    return { ok: true, text: `购买遗物《${finalLabel}》（-${price} 币）${gr.replaced ? '（重复遗物已替换）' : ''}${extras.length > 0 ? '；' + extras.join('；') : ''}` };
   }
   if (slot.kind === 'material' || slot.kind === 'potion') {
     const list = game.perMaterials[charId] ?? (game.perMaterials[charId] = []);
@@ -1088,11 +1178,14 @@ export function tradePick(game: GameState, playerId: string, charId: string, ite
   if (!offer) return { ok: false, err: '该藏品不在可交换列表' };
   const cur = game.itemMap.get(itemId);
   if (!cur) return { ok: false, err: '未找到该藏品' };
-  const owned = game.perItems[charId] ?? [];
-  const idx = owned.indexOf(itemId);
-  if (idx < 0) return { ok: false, err: '该藏品不属于你' };
   const char = game.save.characters.find((c) => c?.id === charId);
   if (!char) return { ok: false, err: '未找到角色' };
+  // 交换来源与 initTrade 保持一致：优先联机独享藏品(perItems)，无则回退局外背包(inventory)
+  const perItems = game.perItems[charId] ?? (game.perItems[charId] = []);
+  let idx = perItems.indexOf(itemId);
+  let fromInventory = idx < 0;
+  if (idx < 0) idx = (char.inventory ?? []).indexOf(itemId);
+  if (idx < 0) return { ok: false, err: '该藏品不属于你' };
   const luck = characterLuck(char, game.itemMap) + sumRelicSixStats(game.perRelics[charId] ?? []).luk;
   const pass = luck + rng.int(1, 50) > 60;
   const targetRarity = pass ? upgradeRarity(cur.rarity) : cur.rarity;
@@ -1101,8 +1194,14 @@ export function tradePick(game: GameState, playerId: string, charId: string, ite
   const pool = tradeItemPool([...game.itemMap.values()], targetRarity, itemId, level, game.run.dungeonId === 'preWallCalamity');
   if (pool.length === 0) return { ok: false, err: '同稀有度暂无其它藏品可换' };
   const ni = pool[rng.int(0, pool.length - 1)];
-  owned.splice(idx, 1);
-  owned.push(ni.id);
+  if (fromInventory) {
+    const inv = char.inventory ?? [];
+    inv.splice(idx, 1);
+    perItems.push(ni.id);
+  } else {
+    perItems.splice(idx, 1);
+    perItems.push(ni.id);
+  }
   st.exchangeCount += 1;
   st.picked = itemId;
   const upgraded = pass && ni.rarity !== cur.rarity;
@@ -1159,17 +1258,11 @@ export function skirmishPerPlayerRewards(game: GameState, players: PlayerChar[],
       }
     }
     if (r.relic) {
-      const owned = new Set(game.perRelics[charId] ?? []);
-      if (!owned.has(r.relic)) {
-        game.perRelics[charId].push(r.relic);
-        texts.push(`【${p.name}】获得遗物《${RELICS.find((x) => x.id === r.relic)?.name ?? r.relic}》`);
+      const gr = grantPerRelic(game, charId, r.relic, rng);
+      if (gr.kind === 'gained') {
+        texts.push(`【${p.name}】获得遗物《${RELIC_MAP[gr.relicId]?.name ?? gr.relicId}》${gr.replaced ? '（重复遗物已替换）' : ''}`);
       } else {
-        const rest = RELICS.filter((x) => x.inPool !== false && !owned.has(x.id));
-        if (rest.length > 0) {
-          const alt = rest[rng.int(0, rest.length - 1)];
-          game.perRelics[charId].push(alt.id);
-          texts.push(`【${p.name}】获得遗物《${alt.name}》（重复遗物已替换）`);
-        }
+        texts.push(`【${p.name}】已拥有该遗物，且随机遗物池已集齐`);
       }
     }
     if (r.item) {

@@ -150,6 +150,10 @@ io.on('connection', (socket) => {
     rooms.runSync(socket);
   });
 
+  socket.on(C2S.ping, (d) => {
+    socket.emit(S2C.pong, d ?? {});
+  });
+
   socket.on('disconnect', () => {
     rooms.onDisconnect(socket);
   });

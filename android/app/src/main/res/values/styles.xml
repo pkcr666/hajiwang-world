@@ -2,7 +2,7 @@
 <resources>
 
     <!-- Base application theme. -->
-    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
@@ -13,6 +13,11 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- 深色窗口背景：配合沉浸式全屏，消除启动瞬间与系统栏区域的白屏 -->
+        <item name="android:windowBackground">#14121c</item>
+        <item name="android:statusBarColor">#14121c</item>
+        <item name="android:navigationBarColor">#14121c</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
 
