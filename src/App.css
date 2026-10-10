@@ -4212,6 +4212,7 @@ p { line-height: 1.6; }
 
 /* ===== 精简版战斗布局（设置页选择）：
    不显示怪物图片 / 敌方框随数量自适应 / 多部位 BOSS 由竖排改横版 ===== */
+[data-battle-mode="lite"] .boss-hp-bar-area { display: none; }
 [data-battle-mode="lite"] .battle-enemies .boss-img,
 [data-battle-mode="lite"] .battle-enemies .unit-art,
 [data-battle-mode="lite"] .battle-enemies .unit-sprite {
