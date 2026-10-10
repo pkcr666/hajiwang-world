@@ -123,6 +123,7 @@ export interface LegalSkillView {
   reason?: string;
   costText?: string;
   desc?: string;
+  source?: 'job' | 'item'; // 技能来源：角色职业 / 藏品（装备 grantsSkill 赋予）
   enhance?: { mpCost: number; kamuiCost: number; mulBonus: number }; // 虚化增强
 }
 export interface LegalItemView {

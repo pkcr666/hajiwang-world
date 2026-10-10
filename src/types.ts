@@ -832,6 +832,7 @@ export interface Combatant {
   attackType: DamageType;
   weaponType?: WeaponType; // 武器类型：近战/远程/魔法（用于遗物分类判定）
   skills: Skill[];
+  itemSkillIds?: string[]; // 装备（藏品）赋予的主动技能 id，用于战斗面板"技能/藏品技能"分类
   ignoreDefPct?: number; // 被动技能：攻击无视目标X%防御（弱点侦查）
   chaTrueDmgMul?: number; // 被动技能：每次攻击附加 魅力×此值 的真实伤害（弱点侦查）
   cooldowns: Record<string, number>;

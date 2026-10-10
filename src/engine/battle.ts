@@ -3003,7 +3003,7 @@ function useItem(s: BattleState, c: Combatant, item: Item, targetUid: string): b
 }
 
 // ---------- 合法行动（UI 菜单的唯一依据） ----------
-export interface LegalSkill { skill: Skill; targetUids: string[] | null; disabled: boolean; reason?: string; costText?: string }
+export interface LegalSkill { skill: Skill; targetUids: string[] | null; disabled: boolean; reason?: string; costText?: string; source?: 'job' | 'item' }
 export interface LegalItem { item: Item; count: number; targetUids: string[] }
 export interface LegalInfo {
   canAttack: boolean;
@@ -3067,7 +3067,7 @@ export function getLegalActions(s: BattleState, items: Map<string, Item>): Legal
     return singleTargetUids.length
       ? { skill: sk, targetUids: singleTargetUids, disabled: false, costText }
       : { skill: sk, targetUids: [], disabled: true, reason: '没有目标', costText };
-  });
+  }).map((ls) => ({ ...ls, source: c.itemSkillIds?.includes(ls.skill.id) ? 'item' : 'job' }));
 
   // 药水道具局内共享：聚合所有存活友方的背包
   const legalItems: LegalItem[] = [];

@@ -148,6 +148,8 @@ export function Battle({ save, allies, aceUnits, enemyIds, mechanics, onRematch,
   const [coinInput, setCoinInput] = useState('');
   const [pendingEnhance, setPendingEnhance] = useState<{ skillId: string; targetUid?: string } | null>(null); // 虚化增强弹窗
   const [ylSelStat, setYlSelStat] = useState<'str' | 'int' | 'agi' | 'wil' | 'luk' | 'cha' | null>(null); // 应龙判定选的维度
+  // 行动面板分类轮换：0=技能 1=藏品技能 2=道具（点最右侧 > 顺序切换，单向循环）
+  const [menuTab, setMenuTab] = useState(0);
 
   const actor = currentActor(battle);
   const isPlayerTurn = !battle.result && actor.side === 'ally';
@@ -155,6 +157,86 @@ export function Battle({ save, allies, aceUnits, enemyIds, mechanics, onRematch,
   const menu = isPlayerTurn ? legal : null;
   // 奥古斯塔：战势≥阈值时技能自动强化（UI上标记强化）
   const augustaEnhanced = actor.momentumMax !== undefined && (actor.momentum ?? 0) >= 3;
+  // 行动面板三分类：0=技能 1=藏品技能 2=道具
+  const MENU_TAB_LABEL = ['技能', '藏品技能', '道具'];
+  const jobSkills = (menu?.skills ?? []).filter((ls) => ls.source !== 'item');
+  const gearSkills = (menu?.skills ?? []).filter((ls) => ls.source === 'item');
+  // 渲染一组技能按钮（普攻由调用方单独渲染）
+  const renderSkillBtns = (list: LegalSkill[]) => list.map((ls) => {
+    const sk = ls.skill;
+    const enhanceMpCost = sk.enhanceMpCost ?? 0;
+    const hasEnhance = enhanceMpCost > 0;
+    const enhanceKamuiCost = sk.enhanceKamuiCost ?? 0;
+    const baseMp = sk.mpCost ?? 0;
+    const enhanceMpOk = actor.mp >= baseMp + enhanceMpCost;
+    const enhanceKamuiOk = (actor.kamuiUses ?? 0) >= enhanceKamuiCost;
+    const enhanceDisabled = ls.disabled || !enhanceMpOk || !enhanceKamuiOk;
+    const enhanceReason = !enhanceMpOk
+      ? `需${baseMp + enhanceMpCost}MP`
+      : !enhanceKamuiOk
+        ? `需${enhanceKamuiCost}次虚化`
+        : ls.reason;
+    const fireSkill = (enhance: boolean) => {
+      if (enhance && enhanceDisabled) return;
+      if (sk.target === 'self' || sk.target === 'enemyAll') {
+        castSkill(sk.id, undefined, enhance);
+      } else {
+        setPending({ kind: 'skill', ls, enhance });
+      }
+    };
+    return (
+      <div key={sk.id} className="skill-row">
+        {sk.variants && sk.variants.length > 0 ? (
+          <div className="skill-row rein-variant-row">
+            {sk.variants.map((v) => {
+              const marked = actor.reinOracle?.markedVariantId === v.id;
+              return (
+                <button
+                  key={v.id}
+                  className={`btn skill-btn rein-variant-btn${marked ? ' rein-marked-variant' : ''}`}
+                  disabled={ls.disabled}
+                  title={`${v.name}：${v.desc}`}
+                  onClick={() => setPending({ kind: 'skill', ls, variantId: v.id })}
+                >
+                  {v.name}
+                  <span className={`btn-sub${marked ? ' rein-mark-icon' : ''}`}>
+                    {marked
+                      ? <img className="rein-mark-img" src={REIN_MARK_ICON} alt="指令标" />
+                      : (ls.disabled ? ls.reason : (ls.costText ?? '—'))}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <button
+            className={`btn skill-btn${augustaEnhanced ? ' augusta-enhanced-skill' : ''}`}
+            disabled={ls.disabled}
+            title={sk.desc}
+            onClick={() => fireSkill(false)}
+          >
+            {augustaEnhanced ? `强化·${sk.name}` : sk.name}
+            <span className="btn-sub">
+              {ls.disabled ? ls.reason : (ls.costText ?? '—')}
+            </span>
+          </button>
+        )}
+        {!sk.variants && hasEnhance && (
+          <button
+            className="btn skill-btn enhance-btn"
+            disabled={enhanceDisabled}
+            title={`${sk.name} · 虚化增强\n额外消耗 ${enhanceMpCost}MP 与 ${enhanceKamuiCost}次虚化，倍率+${Math.round((sk.enhanceMulBonus ?? 0) * 100)}%${sk.enhanceApplyBuffs?.length ? '，附加效果' : ''}`}
+            onClick={() => fireSkill(true)}
+          >
+            虚化增强
+            <span className="btn-sub">
+              {enhanceDisabled ? enhanceReason : `+${enhanceMpCost}MP ${enhanceKamuiCost}虚化`}
+            </span>
+          </button>
+        )}
+      </div>
+    );
+  });
 
   // 飘字
   const pushFloats = (events: LogEntry[]) => {
@@ -649,108 +731,56 @@ export function Battle({ save, allies, aceUnits, enemyIds, mechanics, onRematch,
               </>
             ) : (
               <>
-                <div className="actor-tip">轮到【{actor.name}】行动</div>
-                <div className="action-btns" ref={actionScroll}>
+                <div className="action-panel-wrap">
+                  <div className="action-body">
+                    <div className="actor-tip">轮到【{actor.name}】行动</div>
+                    <div className="action-tab-label">{MENU_TAB_LABEL[menuTab]}</div>
+                    <div className="action-btns" ref={actionScroll}>
+                      {menuTab === 0 && (
+                        <>
+                          <button
+                            className={`btn${augustaEnhanced ? ' augusta-enhanced-skill' : ''}`}
+                            disabled={!menu?.canAttack}
+                            title={menu?.attackAll ? '普攻对敌方全体生效' : undefined}
+                            onClick={() => {
+                              if (menu?.attackAll) {
+                                const first = battle.enemies.find((u) => u.alive);
+                                if (first) commit({ type: 'attack', targetUid: first.uid });
+                              } else {
+                                setPending({ kind: 'attack' });
+                              }
+                            }}
+                          >
+                            {augustaEnhanced ? '强化普攻' : '普攻'}{menu?.attackAll ? <span className="btn-sub">群攻</span> : null}
+                          </button>
+                          {renderSkillBtns(jobSkills)}
+                        </>
+                      )}
+                      {menuTab === 1 && (
+                        gearSkills.length
+                          ? renderSkillBtns(gearSkills)
+                          : <div className="panel-empty">无藏品技能</div>
+                      )}
+                      {menuTab === 2 && (
+                        (menu?.items.length ?? 0) > 0
+                          ? menu?.items.map((li: LegalItem) => (
+                            <button
+                              key={li.item.id}
+                              className="btn item-btn"
+                              onClick={() => setPending({ kind: 'item', li })}
+                            >
+                              {li.item.name}<span className="btn-sub">×{li.count}</span>
+                            </button>
+                          ))
+                          : <div className="panel-empty">无道具</div>
+                      )}
+                    </div>
+                  </div>
                   <button
-                    className={`btn${augustaEnhanced ? ' augusta-enhanced-skill' : ''}`}
-                    disabled={!menu?.canAttack}
-                    title={menu?.attackAll ? '普攻对敌方全体生效' : undefined}
-                    onClick={() => {
-                      if (menu?.attackAll) {
-                        const first = battle.enemies.find((u) => u.alive);
-                        if (first) commit({ type: 'attack', targetUid: first.uid });
-                      } else {
-                        setPending({ kind: 'attack' });
-                      }
-                    }}
-                  >
-                    {augustaEnhanced ? '强化普攻' : '普攻'}{menu?.attackAll ? <span className="btn-sub">群攻</span> : null}
-                  </button>
-                  {menu?.skills.map((ls: LegalSkill) => {
-                    const sk = ls.skill;
-                    const enhanceMpCost = sk.enhanceMpCost ?? 0;
-                    const hasEnhance = enhanceMpCost > 0;
-                    const enhanceKamuiCost = sk.enhanceKamuiCost ?? 0;
-                    const baseMp = sk.mpCost ?? 0;
-                    const enhanceMpOk = actor.mp >= baseMp + enhanceMpCost;
-                    const enhanceKamuiOk = (actor.kamuiUses ?? 0) >= enhanceKamuiCost;
-                    const enhanceDisabled = ls.disabled || !enhanceMpOk || !enhanceKamuiOk;
-                    const enhanceReason = !enhanceMpOk
-                      ? `需${baseMp + enhanceMpCost}MP`
-                      : !enhanceKamuiOk
-                        ? `需${enhanceKamuiCost}次虚化`
-                        : ls.reason;
-                    const fireSkill = (enhance: boolean) => {
-                      if (enhance && enhanceDisabled) return;
-                      if (sk.target === 'self' || sk.target === 'enemyAll') {
-                        castSkill(sk.id, undefined, enhance);
-                      } else {
-                        setPending({ kind: 'skill', ls, enhance });
-                      }
-                    };
-                    return (
-                      <div key={sk.id} className="skill-row">
-                        {sk.variants && sk.variants.length > 0 ? (
-                          // 里恩：一技能三种释放方式（独立按钮，带指令标的变体高亮）
-                          <div className="skill-row rein-variant-row">
-                            {sk.variants.map((v) => {
-                              const marked = actor.reinOracle?.markedVariantId === v.id;
-                              return (
-                                <button
-                                  key={v.id}
-                                  className={`btn skill-btn rein-variant-btn${marked ? ' rein-marked-variant' : ''}`}
-                                  disabled={ls.disabled}
-                                  title={`${v.name}：${v.desc}`}
-                                  onClick={() => setPending({ kind: 'skill', ls, variantId: v.id })}
-                                >
-                                  {v.name}
-                                  <span className={`btn-sub${marked ? ' rein-mark-icon' : ''}`}>
-                                    {marked
-                                      ? <img className="rein-mark-img" src={REIN_MARK_ICON} alt="指令标" />
-                                      : (ls.disabled ? ls.reason : (ls.costText ?? '—'))}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <button
-                            className={`btn skill-btn${augustaEnhanced ? ' augusta-enhanced-skill' : ''}`}
-                            disabled={ls.disabled}
-                            title={sk.desc}
-                            onClick={() => fireSkill(false)}
-                          >
-                            {augustaEnhanced ? `强化·${sk.name}` : sk.name}
-                            <span className="btn-sub">
-                              {ls.disabled ? ls.reason : (ls.costText ?? '—')}
-                            </span>
-                          </button>
-                        )}
-                        {!sk.variants && hasEnhance && (
-                          <button
-                            className="btn skill-btn enhance-btn"
-                            disabled={enhanceDisabled}
-                            title={`${sk.name} · 虚化增强\n额外消耗 ${enhanceMpCost}MP 与 ${enhanceKamuiCost}次虚化，倍率+${Math.round((sk.enhanceMulBonus ?? 0) * 100)}%${sk.enhanceApplyBuffs?.length ? '，附加效果' : ''}`}
-                            onClick={() => fireSkill(true)}
-                          >
-                            虚化增强
-                            <span className="btn-sub">
-                              {enhanceDisabled ? enhanceReason : `+${enhanceMpCost}MP ${enhanceKamuiCost}虚化`}
-                            </span>
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {menu?.items.map((li: LegalItem) => (
-                    <button
-                      key={li.item.id}
-                      className="btn item-btn"
-                      onClick={() => setPending({ kind: 'item', li })}
-                    >
-                      {li.item.name}<span className="btn-sub">×{li.count}</span>
-                    </button>
-                  ))}
+                    className="action-cycler"
+                    title="切换类别"
+                    onClick={() => setMenuTab((t) => (t + 1) % 3)}
+                  >›</button>
                 </div>
               </>
             )

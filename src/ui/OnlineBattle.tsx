@@ -36,6 +36,8 @@ export default function OnlineBattle({ onMap }: Props) {
   const [toast, setToast] = useState('');
   const [infoUid, setInfoUid] = useState<string | null>(null);
   const [showFullLog, setShowFullLog] = useState(false);
+  // 行动面板分类轮换：0=技能 1=藏品技能 2=道具（点最右侧 > 单向循环）
+  const [menuTab, setMenuTab] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
   const fullLogRef = useRef<HTMLDivElement>(null);
   // 行动按钮横向拖拽滚动（鼠标拖拽/触摸滑动）
@@ -76,6 +78,10 @@ export default function OnlineBattle({ onMap }: Props) {
   const actor = currentActor(s);
   const popup = b.popup;
   const legal = b.myLegal;
+  // 行动面板三分类：0=技能 1=藏品技能 2=道具
+  const MENU_TAB_LABEL = ['技能', '藏品技能', '道具'];
+  const jobSkills = (legal?.skills ?? []).filter((ls) => ls.source !== 'item');
+  const gearSkills = (legal?.skills ?? []).filter((ls) => ls.source === 'item');
   const isMyTurn = !!actor && actor.side === 'ally' && !!b.myUnits?.includes(actor.uid) && !popup && !b.result;
   const canResolve = popup && popup.ownerPlayerId === online.myPlayerId;
   const waitingText = popup
@@ -159,6 +165,50 @@ export default function OnlineBattle({ onMap }: Props) {
   const fireItem = (li: LegalItemView) => {
     setPending({ kind: 'item', li });
   };
+
+  // 渲染一组技能按钮（普攻由调用方单独渲染）
+  const renderSkillBtns = (list: LegalSkillView[]) => list.map((ls) => {
+    const hasEnhance = !!ls.enhance && ls.enhance.mpCost > 0;
+    const enhanceMpCost = ls.enhance?.mpCost ?? 0;
+    const enhanceKamuiCost = ls.enhance?.kamuiCost ?? 0;
+    const baseMp = ls.mpCost ?? 0;
+    const enhanceMpOk = actor.mp >= baseMp + enhanceMpCost;
+    const enhanceKamuiOk = (actor.kamuiUses ?? 0) >= enhanceKamuiCost;
+    const enhanceDisabled = ls.disabled || !enhanceMpOk || !enhanceKamuiOk;
+    const enhanceReason = !enhanceMpOk
+      ? `需${baseMp + enhanceMpCost}MP`
+      : !enhanceKamuiOk
+        ? `需${enhanceKamuiCost}次虚化`
+        : ls.reason;
+    return (
+      <div key={ls.id} className="skill-row">
+        <button
+          className="btn skill-btn"
+          disabled={ls.disabled}
+          title={ls.desc}
+          onClick={() => fireSkill(ls, false)}
+        >
+          {ls.name}
+          <span className="btn-sub">
+            {ls.disabled ? ls.reason : (ls.costText ?? '—')}
+          </span>
+        </button>
+        {hasEnhance && (
+          <button
+            className="btn skill-btn enhance-btn"
+            disabled={enhanceDisabled}
+            title={`${ls.name} · 虚化增强\n额外消耗 ${enhanceMpCost}MP 与 ${enhanceKamuiCost}次虚化，倍率+${Math.round((ls.enhance?.mulBonus ?? 0) * 100)}%`}
+            onClick={() => fireSkill(ls, true)}
+          >
+            虚化增强
+            <span className="btn-sub">
+              {enhanceDisabled ? enhanceReason : `+${enhanceMpCost}MP ${enhanceKamuiCost}虚化`}
+            </span>
+          </button>
+        )}
+      </div>
+    );
+  });
 
   return (
     <div className="battle-page">
@@ -276,71 +326,53 @@ export default function OnlineBattle({ onMap }: Props) {
               </>
             ) : (
               <>
-                <div className="actor-tip">轮到【{actor.name}】行动</div>
-                <div className="action-btns" ref={actionScroll}>
-                  <button
-                    className="btn"
-                    disabled={!legal?.canAttack}
-                    title={legal?.attackAll ? '普攻对敌方全体生效' : undefined}
-                    onClick={() => {
-                      if (!legal) return;
-                      if (legal.attackAll) {
-                        const first = s.enemies.find((u) => u.alive);
-                        if (first) act({ type: 'attack', targetUid: first.uid });
-                      } else {
-                        setPending({ kind: 'attack' });
-                      }
-                    }}
-                  >
-                    普攻{legal?.attackAll ? <span className="btn-sub">群攻</span> : null}
-                  </button>
-                  {(legal?.skills ?? []).map((ls) => {
-                    const hasEnhance = !!ls.enhance && ls.enhance.mpCost > 0;
-                    const enhanceMpCost = ls.enhance?.mpCost ?? 0;
-                    const enhanceKamuiCost = ls.enhance?.kamuiCost ?? 0;
-                    const baseMp = ls.mpCost ?? 0;
-                    const enhanceMpOk = actor.mp >= baseMp + enhanceMpCost;
-                    const enhanceKamuiOk = (actor.kamuiUses ?? 0) >= enhanceKamuiCost;
-                    const enhanceDisabled = ls.disabled || !enhanceMpOk || !enhanceKamuiOk;
-                    const enhanceReason = !enhanceMpOk
-                      ? `需${baseMp + enhanceMpCost}MP`
-                      : !enhanceKamuiOk
-                        ? `需${enhanceKamuiCost}次虚化`
-                        : ls.reason;
-                    return (
-                      <div key={ls.id} className="skill-row">
-                        <button
-                          className="btn skill-btn"
-                          disabled={ls.disabled}
-                          title={ls.desc}
-                          onClick={() => fireSkill(ls, false)}
-                        >
-                          {ls.name}
-                          <span className="btn-sub">
-                            {ls.disabled ? ls.reason : (ls.costText ?? '—')}
-                          </span>
-                        </button>
-                        {hasEnhance && (
+                <div className="action-panel-wrap">
+                  <div className="action-body">
+                    <div className="actor-tip">轮到【{actor.name}】行动</div>
+                    <div className="action-tab-label">{MENU_TAB_LABEL[menuTab]}</div>
+                    <div className="action-btns" ref={actionScroll}>
+                      {menuTab === 0 && (
+                        <>
                           <button
-                            className="btn skill-btn enhance-btn"
-                            disabled={enhanceDisabled}
-                            title={`${ls.name} · 虚化增强\n额外消耗 ${enhanceMpCost}MP 与 ${enhanceKamuiCost}次虚化，倍率+${Math.round((ls.enhance?.mulBonus ?? 0) * 100)}%`}
-                            onClick={() => fireSkill(ls, true)}
+                            className="btn"
+                            disabled={!legal?.canAttack}
+                            title={legal?.attackAll ? '普攻对敌方全体生效' : undefined}
+                            onClick={() => {
+                              if (!legal) return;
+                              if (legal.attackAll) {
+                                const first = s.enemies.find((u) => u.alive);
+                                if (first) act({ type: 'attack', targetUid: first.uid });
+                              } else {
+                                setPending({ kind: 'attack' });
+                              }
+                            }}
                           >
-                            虚化增强
-                            <span className="btn-sub">
-                              {enhanceDisabled ? enhanceReason : `+${enhanceMpCost}MP ${enhanceKamuiCost}虚化`}
-                            </span>
+                            普攻{legal?.attackAll ? <span className="btn-sub">群攻</span> : null}
                           </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {(legal?.items ?? []).map((li) => (
-                    <button key={li.itemId} className="btn skill-btn" onClick={() => fireItem(li)}>
-                      {li.name}<span className="btn-sub">×{li.count}</span>
-                    </button>
-                  ))}
+                          {renderSkillBtns(jobSkills)}
+                        </>
+                      )}
+                      {menuTab === 1 && (
+                        gearSkills.length
+                          ? renderSkillBtns(gearSkills)
+                          : <div className="panel-empty">无藏品技能</div>
+                      )}
+                      {menuTab === 2 && (
+                        (legal?.items.length ?? 0) > 0
+                          ? legal?.items.map((li) => (
+                            <button key={li.itemId} className="btn skill-btn" onClick={() => fireItem(li)}>
+                              {li.name}<span className="btn-sub">×{li.count}</span>
+                            </button>
+                          ))
+                          : <div className="panel-empty">无道具</div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    className="action-cycler"
+                    title="切换类别"
+                    onClick={() => setMenuTab((t) => (t + 1) % 3)}
+                  >›</button>
                 </div>
               </>
             )

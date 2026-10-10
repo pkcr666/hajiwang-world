@@ -203,6 +203,7 @@ export class BattleHost {
             reason: ls.reason,
             costText: ls.costText,
             desc: ls.skill.desc,
+            source: ls.source,
             enhance: ls.skill.enhanceMpCost
               ? {
                   mpCost: ls.skill.enhanceMpCost ?? 0,

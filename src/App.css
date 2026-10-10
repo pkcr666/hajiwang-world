@@ -816,6 +816,7 @@ p { line-height: 1.6; }
   background: var(--panel);
   border: 2px solid var(--border);
   border-radius: 4px;
+  padding: 7px 48px 7px 10px; /* 右侧预留右上角全屏按钮位置 */
   padding: 7px 10px;
 }
 .order-label {
@@ -1201,16 +1202,16 @@ p { line-height: 1.6; }
   display: grid;
   grid-template-columns: 1.2fr 1fr;
   gap: 10px;
-  height: 170px;
+  height: 96px; /* 压缩：从 170px 下调约 45%，把主体空间让给战斗画面 */
 }
 .log-panel {
   background: rgba(18,15,28,.92);
   border: 2px solid var(--border);
   border-radius: 4px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   overflow-y: auto;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.5;
 }
 .log-panel-wrap { display: flex; flex-direction: column; min-height: 0; }
 .log-panel-wrap .log-panel { flex: 1; min-height: 0; }
@@ -1224,10 +1225,58 @@ p { line-height: 1.6; }
   background: var(--panel);
   border: 2px solid var(--border);
   border-radius: 4px;
-  padding: 10px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
+  overflow: hidden;
+}
+/* 轮换面板：左侧内容 + 最右侧单向 > 切换按钮 */
+.action-panel-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.action-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+.action-tab-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+.action-cycler {
+  flex: none;
+  width: 34px;
+  align-self: center;
+  height: 100%;
+  font-size: 26px;
+  font-weight: bold;
+  color: var(--accent-2);
+  background: linear-gradient(180deg, #3a3050, #241c38);
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background .12s, border-color .12s;
+}
+.action-cycler:hover {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, #4a3f66, #2e2448);
+}
+.panel-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 0;
 }
 .actor-tip, .target-tip, .result-tip {
   font-weight: bold;
@@ -1248,9 +1297,9 @@ p { line-height: 1.6; }
 }
 .action-btns .btn {
   flex: 0 0 auto;          /* 按钮不压缩、不拉伸，宽度随内容，确保横向溢出可滚动 */
-  min-width: 96px;
-  font-size: 15px;
-  padding: 10px 18px;
+  min-width: 88px;
+  font-size: 13px;
+  padding: 6px 12px;
 }
 /* skill-row 包装层直接融入滑动条，让其中的按钮直接参与横向排列 */
 .skill-row {
@@ -3713,13 +3762,13 @@ p { line-height: 1.6; }
 /* 底部：日志 : 行动 = 3 : 7，技能栏占主导；面板尽量贴底，把空间让给战场 */
 [data-layout="mobile"] .battle-bottom {
   grid-template-columns: 3fr 7fr;
-  height: 210px;
+  height: 118px; /* 压缩：原 210px，下调约 45%，把主体让给战斗画面 */
   flex-shrink: 0;
   gap: 6px;
   margin-top: 4px;
 }
 [data-layout="mobile"] .log-panel {
-  padding: 8px;
+  padding: 6px 8px;
   font-size: 11px;
   line-height: 1.4;
 }
@@ -3727,7 +3776,13 @@ p { line-height: 1.6; }
 [data-layout="mobile"] .log-more-btn { font-size: 10px; padding: 1px 5px; }
 [data-layout="mobile"] .action-panel {
   padding: 8px;
-  gap: 8px;
+  gap: 6px;
+}
+[data-layout="mobile"] .action-cycler {
+  width: 42px; /* 手机端加大触控面积 */
+}
+[data-layout="mobile"] .action-tab-label {
+  font-size: 11px;
 }
 [data-layout="mobile"] .actor-tip,
 [data-layout="mobile"] .target-tip,

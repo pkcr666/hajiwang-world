@@ -64,6 +64,7 @@ export function buildAllyCombatant(
     passives,
     turnStartEnemyDmg: passives.turnStartEnemyDmg,
     skills,
+    itemSkillIds: itemSkills.map((s) => s.id),
     ignoreDefPct: totalIgnoreDefPct || undefined,
     ignoreMresFlat: totalIgnoreMresFlat || undefined,
     chaTrueDmgMul: chaTrueDmgMul || undefined,
