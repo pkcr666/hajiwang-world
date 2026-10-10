@@ -5,6 +5,7 @@ import { C2S, S2C } from '../net/proto';
 import type { BattleView, LegalItemView, LegalSkillView, PopupView } from '../net/proto';
 import { online } from '../net/online';
 import { OrderBar } from '../components/battle/OrderBar';
+import { getBattleLayout } from '../utils/battleLayout';
 import { UnitCard } from '../components/battle/StatBar';
 import { Sprite } from '../components/Sprite';
 import { Modal } from '../components/Modal';
@@ -211,7 +212,7 @@ export default function OnlineBattle({ onMap }: Props) {
   });
 
   return (
-    <div className="battle-page">
+    <div className="battle-page" data-battle-mode={getBattleLayout()}>
       <OrderBar state={s} />
 
       <div className="battle-field">
@@ -328,8 +329,7 @@ export default function OnlineBattle({ onMap }: Props) {
               <>
                 <div className="action-panel-wrap">
                   <div className="action-body">
-                    <div className="actor-tip">轮到【{actor.name}】行动</div>
-                    <div className="action-tab-label">{MENU_TAB_LABEL[menuTab]}</div>
+                    <div className="actor-tip">轮到【{actor.name}】行动 <span className="action-tab-label">{MENU_TAB_LABEL[menuTab]}</span></div>
                     <div className="action-btns" ref={actionScroll}>
                       {menuTab === 0 && (
                         <>

@@ -816,7 +816,7 @@ p { line-height: 1.6; }
   background: var(--panel);
   border: 2px solid var(--border);
   border-radius: 4px;
-  padding: 7px 48px 7px 10px; /* 右侧预留右上角全屏按钮位置 */
+  padding: 7px 76px 7px 10px; /* 右侧预留右上角全屏按钮位置（按钮左移后区域更宽） */
   padding: 7px 10px;
 }
 .order-label {
@@ -1202,7 +1202,7 @@ p { line-height: 1.6; }
   display: grid;
   grid-template-columns: 1.2fr 1fr;
   gap: 10px;
-  height: 96px; /* 压缩：从 170px 下调约 45%，把主体空间让给战斗画面 */
+  height: 78px; /* 再压缩，主体战斗画面最大化 */
 }
 .log-panel {
   background: rgba(18,15,28,.92);
@@ -1248,7 +1248,8 @@ p { line-height: 1.6; }
   overflow: hidden;
 }
 .action-tab-label {
-  flex: none;
+  display: inline-block;
+  margin-left: 12px;
   font-size: 12px;
   font-weight: bold;
   color: var(--accent);
@@ -3762,7 +3763,7 @@ p { line-height: 1.6; }
 /* 底部：日志 : 行动 = 3 : 7，技能栏占主导；面板尽量贴底，把空间让给战场 */
 [data-layout="mobile"] .battle-bottom {
   grid-template-columns: 3fr 7fr;
-  height: 118px; /* 压缩：原 210px，下调约 45%，把主体让给战斗画面 */
+  height: 100px; /* 再压缩，主体战斗画面最大化 */
   flex-shrink: 0;
   gap: 6px;
   margin-top: 4px;
@@ -4189,3 +4190,66 @@ p { line-height: 1.6; }
 .workshop-page .workshop-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .workshop-page .workshop-actions .menu-btn { margin: 0; }
 .workshop-page .workshop-note { margin-top: 18px; font-size: 12px; color: #8d88a8; }
+
+/* ===== 设置弹窗 ===== */
+.settings-section { margin: 10px 0 16px; }
+.settings-label { font-size: 13px; font-weight: 700; color: #b6afd8; margin-bottom: 10px; letter-spacing: 1px; }
+.settings-options { display: flex; flex-direction: column; gap: 10px; }
+.settings-opt {
+  text-align: left;
+  background: rgba(255,255,255,.04);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--text);
+  display: flex; flex-direction: column; gap: 4px;
+  transition: border-color .12s, background .12s;
+}
+.settings-opt span { font-size: 12px; color: #9a93bb; line-height: 1.5; }
+.settings-opt.active { border-color: var(--accent); background: rgba(109,86,168,.18); }
+.settings-opt:hover:not(.active) { border-color: #5a4a8c; }
+
+/* ===== 精简版战斗布局（设置页选择）：
+   不显示怪物图片 / 敌方框随数量自适应 / 多部位 BOSS 由竖排改横版 ===== */
+[data-battle-mode="lite"] .battle-enemies .boss-img,
+[data-battle-mode="lite"] .battle-enemies .unit-art,
+[data-battle-mode="lite"] .battle-enemies .unit-sprite {
+  display: none;
+}
+[data-battle-mode="lite"] .battle-enemies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  align-content: center;
+  align-items: center;
+}
+/* 散怪小卡：去图后压缩，宽度随容器自适应 */
+[data-battle-mode="lite"] .battle-enemies > .unit-card {
+  width: 128px;
+  height: auto;
+  padding: 6px;
+}
+[data-battle-mode="lite"] .battle-enemies > .unit-card .unit-name-row { font-size: 12px; }
+/* 多部位 BOSS：大立绘隐藏后，部位从竖排改为横版一排 */
+[data-battle-mode="lite"] .boss-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+[data-battle-mode="lite"] .boss-parts-col {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+[data-battle-mode="lite"] .boss-parts-col .unit-small {
+  width: 118px;
+  height: auto;
+}
+[data-battle-mode="lite"] .boss-parts-col .unit-small .unit-art,
+[data-battle-mode="lite"] .boss-parts-col .unit-small .unit-sprite { display: none; }

@@ -9,6 +9,7 @@ import {
 } from '../engine/battle';
 import { mathRng, type FixedDrop } from '../types';
 import { buildAceCombatant, buildAllyCombatant, buildEnemyCombatants } from '../engine/unit';
+import { getBattleLayout } from '../utils/battleLayout';
 import { BUFF_LIBRARY, addBuff, computeDamageMods, effDefBuffed, effSpd } from '../engine/buffs';
 import { effAtk } from '../engine/damage';
 import { OrderBar } from '../components/battle/OrderBar';
@@ -615,7 +616,7 @@ export function Battle({ save, allies, aceUnits, enemyIds, mechanics, onRematch,
   }
 
   return (
-    <div className="battle-page">
+    <div className="battle-page" data-battle-mode={getBattleLayout()}>
       <OrderBar state={battle} />
 
       <div className="battle-field">
@@ -733,8 +734,7 @@ export function Battle({ save, allies, aceUnits, enemyIds, mechanics, onRematch,
               <>
                 <div className="action-panel-wrap">
                   <div className="action-body">
-                    <div className="actor-tip">轮到【{actor.name}】行动</div>
-                    <div className="action-tab-label">{MENU_TAB_LABEL[menuTab]}</div>
+                    <div className="actor-tip">轮到【{actor.name}】行动 <span className="action-tab-label">{MENU_TAB_LABEL[menuTab]}</span></div>
                     <div className="action-btns" ref={actionScroll}>
                       {menuTab === 0 && (
                         <>

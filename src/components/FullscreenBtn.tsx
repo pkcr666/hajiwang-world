@@ -20,7 +20,7 @@ export default function FullscreenBtn() {
   const style: CSSProperties = {
     position: 'fixed',
     top: isMobile ? 10 : 12,
-    right: isMobile ? 10 : 14,
+    right: isMobile ? 32 : 38, /* 左移：离右缘远一点，避免贴边压住主界面内容 */
     zIndex: 99999,
     width: isMobile ? 36 : 30,
     height: isMobile ? 36 : 30,
