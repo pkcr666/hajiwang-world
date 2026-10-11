@@ -20,8 +20,8 @@ interface Props {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  combat: '作战', boss: 'BOSS', encounter: '不期而遇', rest: '休息', merchant: '行商',
-  trade: '交易', skirmish: '狭路相逢', recruit: '王牌招募', altar: '祭坛', fate: '命运', sub: '子层',
+  combat: '作战', boss: 'BOSS', encounter: '不期而遇', rest: '安全角落', merchant: '行商',
+  trade: '失与得', skirmish: '狭路相逢', recruit: '王牌招募', altar: '祭坛', fate: '命运', sub: '子层',
 };
 
 // 投票截止倒计时：独立小组件自持定时器，避免顶层每秒重渲染整棵树

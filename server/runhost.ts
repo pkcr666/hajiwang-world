@@ -378,9 +378,11 @@ export function buildCombatRewards(
 
   if (run.dungeonId === 'preWallCalamity') {
     // 藏品按人数出：凑 n 件不同物品（不足时从掉落池补，避免同件重复入池）
+    // 灾厄藏品稀有度权重：35/30/20/13/2（2% 传说）
+    const calamityItemWeights = { uncommon: 35, fine: 30, rare: 20, epic: 13, legendary: 2 };
     if (itemCands.length < n) {
       for (let t = 0; t < 30 && itemCands.length < n; t++) {
-        const r = resolveDrop('item', 'pool', { ...ctx, owned: candSeen }, rng, { level });
+        const r = resolveDrop('item', 'pool', { ...ctx, owned: candSeen }, rng, { level, rarityWeights: calamityItemWeights });
         if (r && (r.kind === 'item' || r.kind === 'consumable')) pushCand(r.item);
       }
     }
@@ -391,7 +393,11 @@ export function buildCombatRewards(
     // 概率判定（所有作战均独立结算，与紧急/BOSS 必掉互不影响）：每人按自身幸运判定，仅刷自己未拥有
     for (const p of players) {
       const luck = luckOf(p);
-      if (rng.int(1, 100) > 20 + luck / 2) continue;
+      const roll = rng.int(1, 100);
+      if (roll > 20 + luck / 2) {
+        texts.push(`【${p.name}】幸运判定 ${roll}/100（阈值 ${Math.floor(20 + luck / 2)}）未通过，本次无随机遗物`);
+        continue;
+      }
       const owned = new Set(game.perRelics[p.char.id] ?? []);
       let r = resolveDrop('relic', 'pool', { ...ctx, owned }, rng, { rarityWeights: weights });
       if (!r) {
@@ -402,7 +408,7 @@ export function buildCombatRewards(
         const gr = grantPerRelic(game, p.char.id, r.relic.id, rng);
         if (gr.kind === 'gained') {
           const finalName = gr.replaced ? (RELIC_MAP[gr.relicId]?.name ?? gr.relicId) : r.relic.name;
-          texts.push(`【${p.name}】因幸运（${luck}）获得遗物《${finalName}》${gr.replaced ? '（重复遗物已替换）' : ''}`);
+          texts.push(`【${p.name}】幸运判定 ${roll}/100 通过，获得遗物《${finalName}》${gr.replaced ? '（重复遗物已替换）' : ''}`);
           texts.push(...applyRelicPickupEffects(game, [gr.relicId]));
         } else {
           texts.push(`【${p.name}】已拥有《${r.relic.name}》，且随机遗物池已集齐`);
@@ -429,7 +435,10 @@ export function buildCombatRewards(
     for (const p of players) {
       const luck = characterLuck(p.char, game.itemMap) + sumRelicSixStats(game.perRelics[p.char.id] ?? []).luk;
       for (const l of rollLuckyDrops(stage, luck, { ...ctx, owned: new Set(game.perRelics[p.char.id] ?? []) }, rng)) {
-        if (!l.success || !l.reward) continue;
+        if (!l.success || !l.reward) {
+          if (!l.success) texts.push(`【${p.name}】幸运判定 ${l.total}（幸运 ${luck} + 1D50[${l.roll}]）未达阈值 ${l.threshold}，本次无随机掉落`);
+          continue;
+        }
         const r = l.reward;
         if (r.kind === 'relic') {
           const gr = grantPerRelic(game, p.char.id, r.relic.id, rng);
@@ -463,9 +472,11 @@ export function buildCombatRewards(
       if (picked.length > 0) texts.push(`紧急掉落：${picked.length} 件遗物进入选择池`);
     }
     // 藏品按人数凑 n 件不同物品进池（不足时从掉落池补，避免同件重复）
+    // 新手村藏品稀有度权重：40/30/20/10（无传说）
+    const villageItemWeights = { uncommon: 40, fine: 30, rare: 20, epic: 10 };
     if (itemCands.length < n) {
       for (let t = 0; t < 30 && itemCands.length < n; t++) {
-        const r = resolveDrop('item', 'pool', { ...ctx, owned: candSeen }, rng, { level });
+        const r = resolveDrop('item', 'pool', { ...ctx, owned: candSeen }, rng, { level, rarityWeights: villageItemWeights });
         if (r && (r.kind === 'item' || r.kind === 'consumable')) pushCand(r.item);
       }
     }
@@ -497,6 +508,8 @@ export function resolveLootVote(
   const winnerOf = new Map<string, LootItem>();
   const unassigned = new Set(candidates.map((c) => c.key));
   const pickerOf = new Map<string, string[]>(); // lootKey -> playerIds（第一志愿）
+  const texts: string[] = [];
+  const playerName = (pid: string) => players.find((p) => p.playerId === pid)?.name ?? pid;
   for (const p of players) {
     const key = submissions[p.playerId];
     const cand = candidates.find((c) => c.key === key) ?? candidates[0];
@@ -505,12 +518,17 @@ export function resolveLootVote(
     list.push(p.playerId);
     pickerOf.set(cand.key, list);
   }
-  // 逐候选：唯一志愿直接获得；多人撞车随机一人获得
+  // 逐候选：唯一志愿直接获得；多人撞车随机一人获得并明确播报归属
   for (const [lkey, pids] of pickerOf) {
     if (unassigned.has(lkey) && pids.length > 0) {
-      const w = pids.length === 1 ? pids[0] : pids[rng.int(0, pids.length - 1)];
       const loot = candidates.find((c) => c.key === lkey)!;
-      winnerOf.set(w, loot);
+      if (pids.length > 1) {
+        const w = pids[rng.int(0, pids.length - 1)];
+        texts.push(`多人争抢《${loot.label}》（${pids.map(playerName).join('、')}），随机由【${playerName(w)}】获得`);
+        winnerOf.set(w, loot);
+      } else {
+        winnerOf.set(pids[0], loot);
+      }
       unassigned.delete(lkey);
     }
   }
@@ -524,7 +542,6 @@ export function resolveLootVote(
       unassigned.delete(loot.key);
     }
   }
-  const texts: string[] = [];
   for (const p of players) {
     const loot = winnerOf.get(p.playerId);
     if (!loot) {
