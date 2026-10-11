@@ -1202,7 +1202,7 @@ p { line-height: 1.6; }
   display: grid;
   grid-template-columns: 1.2fr 1fr;
   gap: 10px;
-  height: 78px; /* 再压缩，主体战斗画面最大化 */
+  height: 170px; /* 正常版：恢复日志/技能框原尺寸；精简版(lite)在下方覆盖为压缩高度 */
 }
 .log-panel {
   background: rgba(18,15,28,.92);
@@ -3763,7 +3763,7 @@ p { line-height: 1.6; }
 /* 底部：日志 : 行动 = 3 : 7，技能栏占主导；面板尽量贴底，把空间让给战场 */
 [data-layout="mobile"] .battle-bottom {
   grid-template-columns: 3fr 7fr;
-  height: 100px; /* 再压缩，主体战斗画面最大化 */
+  height: 170px; /* 正常版移动端：恢复日志/技能框尺寸；精简版在下方覆盖为 100px */
   flex-shrink: 0;
   gap: 6px;
   margin-top: 4px;
@@ -4212,6 +4212,9 @@ p { line-height: 1.6; }
 
 /* ===== 精简版战斗布局（设置页选择）：
    不显示怪物图片 / 敌方框随数量自适应 / 多部位 BOSS 由竖排改横版 ===== */
+/* 精简版：日志/技能框压缩（面向手机端与手机网页端）；正常版保持上方 170px 大尺寸 */
+[data-battle-mode="lite"] .battle-bottom { height: 78px; }
+[data-layout="mobile"] [data-battle-mode="lite"] .battle-bottom { height: 100px; }
 [data-battle-mode="lite"] .boss-hp-bar-area { display: none; }
 [data-battle-mode="lite"] .battle-enemies .boss-img,
 [data-battle-mode="lite"] .battle-enemies .unit-art,
