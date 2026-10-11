@@ -211,6 +211,12 @@ export class BattleHost {
                   mulBonus: ls.skill.enhanceMulBonus ?? 0,
                 }
               : undefined,
+            variants: ls.skill.variants?.map((v) => ({
+              id: v.id,
+              name: v.name,
+              desc: v.desc,
+              marked: actor.reinOracle?.markedVariantId === v.id,
+            })),
           })),
           items: legal.items.map((li) => ({
             itemId: li.item.id,
@@ -310,7 +316,7 @@ export class BattleHost {
   }
 
   // 玩家提交行动：必须是当前行动者且属于该玩家
-  onAct(playerId: string, action: { type: 'attack'; targetUid: string } | { type: 'skill'; skillId: string; targetUid?: string; enhance?: boolean } | { type: 'item'; itemId: string; targetUid: string }): { ok: boolean; err?: string } {
+  onAct(playerId: string, action: { type: 'attack'; targetUid: string } | { type: 'skill'; skillId: string; targetUid?: string; enhance?: boolean; variantId?: string } | { type: 'item'; itemId: string; targetUid: string }): { ok: boolean; err?: string } {
     if (this.result) return { ok: false, err: '战斗已结束' };
     const s = this.state;
     if (s.pendingChoice || s.pendingKaynForm || s.pendingGatesChoice || s.yinglongCheck?.pending || s.pendingReaction || s.pendingBrokenArk) {

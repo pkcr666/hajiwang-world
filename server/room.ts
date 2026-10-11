@@ -815,40 +815,31 @@ export class RoomManager {
   private startLootVote(room: Room, then: () => void): void {
     const g = room.game!;
     const players = this.playerList(room);
-    // 遗物与藏品分两轮投票：紧急/BOSS 必掉的遗物不再挤掉藏品选择
-    const relics = g.lootPool.filter((l) => l.kind === 'relic');
-    const items = g.lootPool.filter((l) => l.kind !== 'relic');
-    const runRound = (pool: typeof relics, title: string, desc: string, next: () => void) => {
-      if (pool.length === 0) { next(); return; }
-      g.lootPool = pool;
-      const options = pool.slice(0, players.length).map((l) => ({
-        id: l.key,
-        label: l.label,
-        desc: l.kind === 'relic' ? '遗物（独享）' : `藏品（${l.rarity ?? ''}）`,
-      }));
-      this.startVote(room, 'loot', title, options, desc,
-        (_choiceId, submissions) => {
-          // 全员已选：先广播"正在随机分配"，延迟 1.5s 公布分配结果
-          this.broadcastRoom(room, S2C.voteResult, { choiceId: '', title, submissions, rolling: true });
-          setTimeout(() => {
-            try {
-              const { texts } = resolveLootVote(g, players, submissions, mathRng);
-              for (const t of texts) this.pushLog(room, t);
-              next();
-            } catch (e) {
-              console.log('[loot:error]', String(e));
-              this.broadcastRoom(room, S2C.err, { text: `掉落结算出错：${String(e)}` });
-              this.broadcastRun(room, 'map');
-              this.startMoveVote(room);
-            }
-          }, 1500);
-        });
-    };
-    runRound(relics, '分配遗物（每人选一件）',
-      '每个玩家选择想要的一件遗物；多人选同一件时随机一人获得，其余从剩余遗物随机补。',
-      () => runRound(items, '分配藏品（每人选一件）',
-        '每个玩家选择想要的一件藏品；多人选同一件时随机一人获得，其余从剩余藏品随机补。',
-        then));
+    // 遗物与藏品同池展示（不再截断到人数），玩家自由选一件；撞车随机，落选者从剩余补
+    const pool = g.lootPool;
+    if (pool.length === 0) { then(); return; }
+    const options = pool.map((l) => ({
+      id: l.key,
+      label: l.label,
+      desc: l.kind === 'relic' ? '遗物（独享）' : `藏品（${l.rarity ?? ''}）`,
+    }));
+    this.startVote(room, 'loot', '分配掉落（每人选一件）', options,
+      '每个玩家选择想要的一件（遗物/藏品均可）；多人选同一件时随机一人获得，其余从剩余掉落随机补。',
+      (_choiceId, submissions) => {
+        // 短暂延迟让玩家看到随机过程，再结算并进入下一阶段
+        setTimeout(() => {
+          try {
+            const { texts } = resolveLootVote(g, players, submissions, mathRng);
+            for (const t of texts) this.pushLog(room, t);
+            then();
+          } catch (e) {
+            console.log('[loot:error]', String(e));
+            this.broadcastRoom(room, S2C.err, { text: `掉落结算出错：${String(e)}` });
+            this.broadcastRun(room, 'map');
+            this.startMoveVote(room);
+          }
+        }, 800);
+      });
   }
 
   private checkWinOrNext(room: Room): void {

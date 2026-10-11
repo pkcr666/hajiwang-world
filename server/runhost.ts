@@ -501,10 +501,10 @@ export function resolveLootVote(
   rng: Rng,
 ): { texts: string[] } {
   const pool = [...game.lootPool];
-  // 候选按遗物优先排序：紧急/BOSS 必掉的遗物必须先于藏品被选中，事件追加的遗物亦然
+  // 候选为全部掉落（遗物+藏品混排），不再截断到人数；落选者从剩余随机补
   const ordered = [...pool.filter((l) => l.kind === 'relic'), ...pool.filter((l) => l.kind !== 'relic')];
-  const candidates = ordered.slice(0, players.length);
-  const rest = ordered.slice(players.length);
+  const candidates = ordered;
+  const rest = ordered.slice(players.length * 2); // 兜底：留少量未分配项（实际不回灌）
   const winnerOf = new Map<string, LootItem>();
   const unassigned = new Set(candidates.map((c) => c.key));
   const pickerOf = new Map<string, string[]>(); // lootKey -> playerIds（第一志愿）

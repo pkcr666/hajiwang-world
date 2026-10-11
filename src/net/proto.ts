@@ -114,6 +114,12 @@ export interface PopupView {
 }
 
 // 合法行动视图（对齐单人版 getLegalActions：被动已过滤、自动目标已预计算）
+export interface LegalSkillVariantView {
+  id: string;
+  name: string;
+  desc?: string;
+  marked?: boolean; // 里恩神谕代行者：本回合指令标
+}
 export interface LegalSkillView {
   id: string;
   name: string;
@@ -125,6 +131,7 @@ export interface LegalSkillView {
   desc?: string;
   source?: 'job' | 'item'; // 技能来源：角色职业 / 藏品（装备 grantsSkill 赋予）
   enhance?: { mpCost: number; kamuiCost: number; mulBonus: number }; // 虚化增强
+  variants?: LegalSkillVariantView[]; // 里恩一技能三种释放方式
 }
 export interface LegalItemView {
   itemId: string;

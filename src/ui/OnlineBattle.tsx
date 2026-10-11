@@ -22,7 +22,7 @@ interface Props {
 
 type Pending =
   | { kind: 'attack' }
-  | { kind: 'skill'; ls: LegalSkillView; enhance: boolean }
+  | { kind: 'skill'; ls: LegalSkillView; enhance: boolean; variantId?: string }
   | { kind: 'item'; li: LegalItemView };
 
 function logTextOf(l: LogEntry): string {
@@ -93,7 +93,7 @@ export default function OnlineBattle({ onMap }: Props) {
         ? (isMyTurn ? `轮到 ${actor.name} 行动` : `等待 ${actor.name} 行动…`)
         : '战斗进行中…';
 
-  const act = (action: { type: 'attack'; targetUid: string } | { type: 'skill'; skillId: string; targetUid?: string; enhance?: boolean } | { type: 'item'; itemId: string; targetUid: string }) => {
+  const act = (action: { type: 'attack'; targetUid: string } | { type: 'skill'; skillId: string; targetUid?: string; enhance?: boolean; variantId?: string } | { type: 'item'; itemId: string; targetUid: string }) => {
     online.emit(C2S.battleAct, { action });
     setPending(null);
   };
@@ -154,12 +154,12 @@ export default function OnlineBattle({ onMap }: Props) {
     }
   }
 
-  const fireSkill = (ls: LegalSkillView, enhance: boolean) => {
+  const fireSkill = (ls: LegalSkillView, enhance: boolean, variantId?: string) => {
     if (ls.disabled) return;
     if (ls.targetUids === null) {
-      act({ type: 'skill', skillId: ls.id, enhance });
+      act({ type: 'skill', skillId: ls.id, enhance, variantId });
     } else {
-      setPending({ kind: 'skill', ls, enhance });
+      setPending({ kind: 'skill', ls, enhance, variantId });
     }
   };
 
@@ -181,6 +181,27 @@ export default function OnlineBattle({ onMap }: Props) {
       : !enhanceKamuiOk
         ? `需${enhanceKamuiCost}次虚化`
         : ls.reason;
+    // 里恩一技能三种释放方式：渲染三个变体按钮（与单人版一致）
+    if (ls.variants && ls.variants.length > 0) {
+      return (
+        <div key={ls.id} className="skill-row rein-variant-row">
+          {ls.variants.map((v) => (
+            <button
+              key={v.id}
+              className={`btn skill-btn rein-variant-btn${v.marked ? ' rein-marked-variant' : ''}`}
+              disabled={ls.disabled}
+              title={`${v.name}：${v.desc ?? ls.desc ?? ''}`}
+              onClick={() => fireSkill(ls, false, v.id)}
+            >
+              {v.name}
+              <span className={`btn-sub${v.marked ? ' rein-mark-icon' : ''}`}>
+                {ls.disabled ? ls.reason : (ls.costText ?? '—')}
+              </span>
+            </button>
+          ))}
+        </div>
+      );
+    }
     return (
       <div key={ls.id} className="skill-row">
         <button
@@ -251,7 +272,7 @@ export default function OnlineBattle({ onMap }: Props) {
               onClick={() => {
                 if (!pending) return;
                 if (pending.kind === 'item') act({ type: 'item', itemId: pending.li.itemId, targetUid: u.uid });
-                else if (pending.kind === 'skill') act({ type: 'skill', skillId: pending.ls.id, targetUid: u.uid, enhance: pending.enhance });
+                else if (pending.kind === 'skill') act({ type: 'skill', skillId: pending.ls.id, targetUid: u.uid, enhance: pending.enhance, variantId: pending.variantId });
               }}
             />
           ))}
@@ -278,7 +299,7 @@ export default function OnlineBattle({ onMap }: Props) {
                       onClick={() => {
                         if (!pending || pending.kind === 'item') return;
                         if (pending.kind === 'attack') act({ type: 'attack', targetUid: u.uid });
-                        else act({ type: 'skill', skillId: pending.ls.id, targetUid: u.uid, enhance: pending.enhance });
+                        else act({ type: 'skill', skillId: pending.ls.id, targetUid: u.uid, enhance: pending.enhance, variantId: pending.variantId });
                       }}
                     />
                   ))}
@@ -297,7 +318,7 @@ export default function OnlineBattle({ onMap }: Props) {
                   const u = g.units[0];
                   if (!pending || pending.kind === 'item') return;
                   if (pending.kind === 'attack') act({ type: 'attack', targetUid: u.uid });
-                  else act({ type: 'skill', skillId: pending.ls.id, targetUid: u.uid, enhance: pending.enhance });
+                  else act({ type: 'skill', skillId: pending.ls.id, targetUid: u.uid, enhance: pending.enhance, variantId: pending.variantId });
                 }}
               />
             ),
